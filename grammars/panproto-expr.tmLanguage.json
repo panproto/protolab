@@ -1,0 +1,166 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Panproto Expression",
+  "scopeName": "source.panproto-expr",
+  "fileTypes": ["expr", "pexpr"],
+  "patterns": [
+    { "include": "#comment" },
+    { "include": "#string" },
+    { "include": "#number" },
+    { "include": "#constant" },
+    { "include": "#keyword" },
+    { "include": "#builtin" },
+    { "include": "#operator" },
+    { "include": "#lambda" },
+    { "include": "#typeConstructor" },
+    { "include": "#identifier" },
+    { "include": "#punctuation" }
+  ],
+  "repository": {
+    "comment": {
+      "name": "comment.line.double-dash.panproto-expr",
+      "match": "--.*$"
+    },
+
+    "string": {
+      "name": "string.quoted.double.panproto-expr",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.panproto-expr",
+          "match": "\\\\([\\\\\"nrt0]|x[0-9A-Fa-f]{2}|u\\{[0-9A-Fa-f]+\\})"
+        }
+      ]
+    },
+
+    "number": {
+      "patterns": [
+        {
+          "name": "constant.numeric.float.panproto-expr",
+          "match": "\\b[0-9][0-9_]*\\.[0-9][0-9_]*\\b"
+        },
+        {
+          "name": "constant.numeric.hex.panproto-expr",
+          "match": "\\b0x[0-9a-fA-F][0-9a-fA-F_]*\\b"
+        },
+        {
+          "name": "constant.numeric.integer.panproto-expr",
+          "match": "\\b[0-9][0-9_]*\\b"
+        }
+      ]
+    },
+
+    "constant": {
+      "name": "constant.language.panproto-expr",
+      "match": "\\b(True|False|Nothing|otherwise)\\b"
+    },
+
+    "keyword": {
+      "name": "keyword.control.panproto-expr",
+      "match": "\\b(let|in|where|if|then|else|case|of|do|guard|not|mod|div)\\b"
+    },
+
+    "builtin": {
+      "name": "support.function.builtin.panproto-expr",
+      "match": "\\b(add|sub|mul|div|mod_|neg|abs|floor|ceil|round|eq|neq|lt|lte|gt|gte|and|or|not|concat|len|slice|upper|lower|trim|split|join|replace|contains|map|filter|fold|append|head|tail|reverse|flat_map|flatMap|length|merge|merge_records|mergeRecords|keys|values|has_field|hasField|default|default_val|defaultVal|clamp|truncate_str|truncateStr|int_to_float|intToFloat|float_to_int|floatToInt|int_to_str|intToStr|float_to_str|floatToStr|str_to_int|strToInt|str_to_float|strToFloat|type_of|typeOf|is_null|isNull|is_list|isList|edge|children|has_edge|hasEdge|edge_count|edgeCount|anchor)\\b(?=\\s*[\\(a-zA-Z_0-9\"\\[\\{])"
+    },
+
+    "operator": {
+      "patterns": [
+        {
+          "name": "keyword.operator.arrow.panproto-expr",
+          "match": "->|<-|=>"
+        },
+        {
+          "name": "keyword.operator.range.panproto-expr",
+          "match": "\\.\\."
+        },
+        {
+          "name": "keyword.operator.comparison.panproto-expr",
+          "match": "==|/=|<=|>=|<|>"
+        },
+        {
+          "name": "keyword.operator.logical.panproto-expr",
+          "match": "&&|\\|\\|"
+        },
+        {
+          "name": "keyword.operator.concat.panproto-expr",
+          "match": "\\+\\+"
+        },
+        {
+          "name": "keyword.operator.assignment.panproto-expr",
+          "match": "="
+        },
+        {
+          "name": "keyword.operator.pipe.panproto-expr",
+          "match": "&"
+        },
+        {
+          "name": "keyword.operator.arithmetic.panproto-expr",
+          "match": "[+\\-*/%]"
+        },
+        {
+          "name": "keyword.operator.field.panproto-expr",
+          "match": "\\."
+        }
+      ]
+    },
+
+    "lambda": {
+      "name": "keyword.operator.lambda.panproto-expr",
+      "match": "\\\\"
+    },
+
+    "typeConstructor": {
+      "name": "entity.name.type.panproto-expr",
+      "match": "\\b[A-Z][a-zA-Z0-9_']*\\b"
+    },
+
+    "identifier": {
+      "patterns": [
+        {
+          "name": "variable.language.wildcard.panproto-expr",
+          "match": "\\b_\\b"
+        },
+        {
+          "name": "entity.name.function.panproto-expr",
+          "match": "\\b[a-z_][a-zA-Z0-9_']*(?=\\s*\\()"
+        },
+        {
+          "name": "variable.other.panproto-expr",
+          "match": "\\b[a-z_][a-zA-Z0-9_']*\\b"
+        }
+      ]
+    },
+
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.section.parens.panproto-expr",
+          "match": "[()]"
+        },
+        {
+          "name": "punctuation.section.brackets.panproto-expr",
+          "match": "[\\[\\]]"
+        },
+        {
+          "name": "punctuation.section.braces.panproto-expr",
+          "match": "[{}]"
+        },
+        {
+          "name": "punctuation.separator.comma.panproto-expr",
+          "match": ","
+        },
+        {
+          "name": "punctuation.separator.semicolon.panproto-expr",
+          "match": ";"
+        },
+        {
+          "name": "punctuation.separator.pipe.panproto-expr",
+          "match": "\\|"
+        }
+      ]
+    }
+  }
+}

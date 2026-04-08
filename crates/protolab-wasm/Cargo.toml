@@ -1,0 +1,30 @@
+[package]
+name = "protolab-wasm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+protolab-schema.workspace = true
+protolab-core.workspace = true
+protolab-eval.workspace = true
+panproto-schema.workspace = true
+panproto-gat.workspace = true
+panproto-protocols.workspace = true
+panproto-lens.workspace = true
+panproto-inst.workspace = true
+panproto-expr.workspace = true
+panproto-expr-parser.workspace = true
+panproto-theory-dsl.workspace = true
+wasm-bindgen.workspace = true
+rmp-serde.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+smallvec.workspace = true
+thiserror.workspace = true
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false

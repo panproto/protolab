@@ -1,0 +1,102 @@
+==================
+decimal integer
+==================
+
+42
+
+------------------
+
+(source_file
+  (integer_literal))
+
+==================
+hex integer
+==================
+
+0xFF
+
+------------------
+
+(source_file
+  (integer_literal))
+
+==================
+float literal
+==================
+
+3.14
+
+------------------
+
+(source_file
+  (float_literal))
+
+==================
+string literal
+==================
+
+"hello"
+
+------------------
+
+(source_file
+  (string_literal))
+
+==================
+string with escapes
+==================
+
+"a\nb\t\"c"
+
+------------------
+
+(source_file
+  (string_literal
+    (escape_sequence)
+    (escape_sequence)
+    (escape_sequence)))
+
+==================
+string with unicode escape
+==================
+
+"\u{1F600}"
+
+------------------
+
+(source_file
+  (string_literal
+    (escape_sequence)))
+
+==================
+boolean true
+==================
+
+True
+
+------------------
+
+(source_file
+  (boolean_literal))
+
+==================
+boolean false
+==================
+
+False
+
+------------------
+
+(source_file
+  (boolean_literal))
+
+==================
+null literal
+==================
+
+Nothing
+
+------------------
+
+(source_file
+  (null_literal))

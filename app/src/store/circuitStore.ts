@@ -1,0 +1,643 @@
+/**
+ * Zustand store for circuit state.
+ * WASM is authoritative; React Flow state is a derived view.
+ */
+
+import { create } from "zustand";
+import type { Node, Edge } from "@xyflow/react";
+import * as wasm from "../wasm/bridge";
+import type { CircuitGraph, GraphNode, GraphEdge } from "../wasm/bridge";
+
+// ── Component catalog ───────────────────────────────────────────────
+
+export interface ParamDef {
+  key: string;
+  label: string;
+  default: string;
+  /** Rendering hint for the Inspector: "text" (default), "expression"
+   *  (CodeMirror), "enum" (dropdown with `options`), "field_ref"
+   *  (a field-name picker — text input for now). */
+  kind?: "text" | "expression" | "enum" | "field_ref";
+  options?: string[];
+  /** Whether this param is required for the component to evaluate. */
+  required?: boolean;
+}
+
+/**
+ * A single port on a component.
+ *
+ * The `suffix` is appended to the component instance id to form the port
+ * id (e.g. component `comp_3` with port suffix `in2` → port `comp_3.in2`).
+ * `label` is shown in the Inspector's Ports list.
+ */
+export interface PortDef {
+  suffix: string;
+  direction: "input" | "output" | "parameter";
+  trigger: "hot" | "cold";
+  label?: string;
+}
+
+/**
+ * Default port set used when a component definition omits `ports`.
+ * Matches the historical hardcoded shape: one hot input, one hot output,
+ * and one cold parameter port.
+ */
+const DEFAULT_PORTS: PortDef[] = [
+  { suffix: "in", direction: "input", trigger: "hot", label: "in" },
+  { suffix: "out", direction: "output", trigger: "hot", label: "out" },
+  { suffix: "param", direction: "parameter", trigger: "cold", label: "param" },
+];
+
+export interface ComponentDef {
+  type: string;
+  label: string;
+  category: string;
+  optic: string;
+  color: string;
+  params: ParamDef[];
+  /** Optional per-component port schema. Falls back to `DEFAULT_PORTS`
+   *  (one hot in, one hot out, one cold param) when omitted. */
+  ports?: PortDef[];
+}
+
+/** Resolve a component definition's port schema, applying the default. */
+export function portsForComponent(def: ComponentDef): PortDef[] {
+  return def.ports ?? DEFAULT_PORTS;
+}
+
+export const COMPONENT_CATALOG: ComponentDef[] = [
+  {
+    type: "rename_field", label: "RenameField", category: "Structure",
+    optic: "iso", color: "#4CAF50",
+    params: [{ key: "old_name", label: "Old Name", default: "" }, { key: "new_name", label: "New Name", default: "" }],
+  },
+  {
+    type: "add_field", label: "AddField", category: "Structure",
+    optic: "lens", color: "#2196F3",
+    params: [{ key: "field_name", label: "Field Name", default: "" }, { key: "field_kind", label: "Kind", default: "string" }, { key: "default", label: "Default", default: "" }],
+  },
+  {
+    type: "drop_field", label: "DropField", category: "Structure",
+    optic: "lens", color: "#2196F3",
+    params: [{ key: "field_name", label: "Field Name", default: "" }],
+  },
+  {
+    type: "hoist_field", label: "HoistField", category: "Structure",
+    optic: "lens", color: "#2196F3",
+    params: [{ key: "parent", label: "Parent", default: "" }, { key: "intermediate", label: "Intermediate", default: "" }, { key: "child", label: "Child", default: "" }],
+  },
+  {
+    type: "nest_field", label: "NestField", category: "Structure",
+    optic: "lens", color: "#2196F3",
+    params: [{ key: "parent", label: "Parent", default: "" }, { key: "child", label: "Child", default: "" }, { key: "wrapper", label: "Wrapper", default: "" }],
+  },
+  {
+    type: "coerce_type", label: "CoerceType", category: "Type Coercion",
+    optic: "lens", color: "#2196F3",
+    params: [
+      { key: "field", label: "Field", default: "", kind: "field_ref", required: true },
+      { key: "expr", label: "Forward (panproto-expr)", default: "", kind: "expression", required: true },
+      { key: "inverse", label: "Inverse (panproto-expr)", default: "", kind: "expression" },
+      {
+        key: "coercion", label: "Coercion Class", default: "",
+        kind: "enum", options: ["", "iso", "retraction", "projection", "opaque"],
+      },
+    ],
+  },
+  {
+    type: "map_items", label: "MapItems", category: "Collections",
+    optic: "traversal", color: "#F44336",
+    params: [{ key: "focus", label: "Array Field", default: "", kind: "field_ref", required: true }],
+  },
+  {
+    type: "apply_expr", label: "ApplyExpr", category: "Expressions",
+    optic: "lens", color: "#2196F3",
+    params: [
+      { key: "field", label: "Field", default: "", kind: "field_ref", required: true },
+      { key: "expr", label: "Forward (panproto-expr)", default: "", kind: "expression", required: true },
+      { key: "inverse", label: "Inverse (panproto-expr)", default: "", kind: "expression" },
+      {
+        key: "coercion", label: "Coercion Class", default: "",
+        kind: "enum", options: ["", "iso", "retraction", "projection", "opaque"],
+      },
+    ],
+  },
+  {
+    type: "compute_field", label: "ComputeField", category: "Expressions",
+    optic: "lens", color: "#2196F3",
+    params: [
+      { key: "target", label: "Target Field", default: "", required: true },
+      { key: "expr", label: "Forward (panproto-expr)", default: "", kind: "expression", required: true },
+      { key: "inverse", label: "Inverse (panproto-expr)", default: "", kind: "expression" },
+      {
+        key: "coercion", label: "Coercion Class", default: "",
+        kind: "enum", options: ["", "iso", "retraction", "projection", "opaque"],
+      },
+    ],
+  },
+];
+
+// ── Schema/theory info ──────────────────────────────────────────────
+
+export interface SchemaInfo {
+  handle: number;
+  name: string;
+  protocol: string;
+  vertexCount: number;
+  edgeCount: number;
+}
+
+export interface TheoryInfo {
+  handle: number;
+  name: string;
+  sortCount: number;
+  opCount: number;
+}
+
+/**
+ * UI-side view of a registered user protocol. Mirrors the `ProtocolSummary`
+ * struct from `protolab-wasm` plus a handle for retrieving the full body.
+ */
+export interface ProtocolInfo {
+  handle: number;
+  name: string;
+  schemaTheory: string;
+  instanceTheory: string;
+  objKindCount: number;
+  constraintSortCount: number;
+  edgeRuleCount: number;
+  hasOrder: boolean;
+  hasCoproducts: boolean;
+  hasRecursion: boolean;
+  hasCausal: boolean;
+  nominalIdentity: boolean;
+  hasDefaults: boolean;
+  hasCoercions: boolean;
+  hasMergers: boolean;
+  hasPolicies: boolean;
+}
+
+// ── Store ───────────────────────────────────────────────────────────
+
+interface CircuitState {
+  nodes: Node[];
+  edges: Edge[];
+  loading: boolean;
+  error: string | null;
+  circuitHandle: number | null;
+  selectedNodeId: string | null;
+  selectedEdgeId: string | null;
+  importedSchemas: SchemaInfo[];
+  importedTheories: TheoryInfo[];
+  importedProtocols: ProtocolInfo[];
+
+  // Evaluation state
+  sourceSchemaHandle: number | null;
+  inputDataJson: string;
+  outputDataJson: string;
+  wireDataMap: Record<string, string>;
+  evaluationError: string | null;
+  selectedWireId: string | null;
+
+  // Init
+  initDemo(): Promise<void>;
+
+  // Selection
+  selectNode(id: string | null): void;
+  selectEdge(id: string | null): void;
+  selectWire(id: string | null): void;
+
+  // Mutation
+  addComponent(type: string, x: number, y: number): void;
+  removeComponent(id: string): void;
+  connectPorts(srcPort: string, tgtPort: string): void;
+  removeWire(id: string): void;
+  updateParam(componentId: string, key: string, value: string): void;
+
+  // Import
+  importLensDocument(json: string): void;
+  importSchema(json: string): void;
+  importTheory(json: string): void;
+  importProtocol(json: string): void;
+  removeProtocol(name: string): void;
+  refreshProtocols(): void;
+  getProtocolJson(name: string): string | null;
+
+  // Schema assignment + evaluation
+  assignSourceSchema(schemaHandle: number): void;
+  setInputData(json: string): void;
+  runEvaluation(): void;
+  applyModifiedOutput(json: string): void;
+
+  // Theories
+  buildTheoryFromJson(json: string): void;
+  composeTheories(t1: number, t2: number, sharedSorts: string[]): void;
+
+  // Internal
+  applyGraph(graph: CircuitGraph): void;
+  setError(error: string | null): void;
+}
+
+let nextComponentId = 0;
+let nextWireId = 100;
+
+function graphToReactFlow(graph: CircuitGraph): { nodes: Node[]; edges: Edge[] } {
+  const nodes: Node[] = graph.nodes.map((n: GraphNode) => {
+    // Prefer the catalog's CamelCase display label so node titles match
+    // the palette ("MapItems") instead of showing the snake_case type id
+    // ("map_items") that the backend stores as the canonical name.
+    const def = COMPONENT_CATALOG.find((c) => c.type === n.component_type);
+    return {
+      id: n.id,
+      type: "component",
+      position: n.position,
+      data: {
+        label: def?.label ?? n.label,
+        componentType: n.component_type,
+        opticKind: n.optic_kind,
+        ports: n.ports,
+        params: n.params,
+      },
+    };
+  });
+
+  const edges: Edge[] = graph.edges.map((e: GraphEdge) => ({
+    id: e.id,
+    source: e.source,
+    target: e.target,
+    sourceHandle: e.source_handle,
+    targetHandle: e.target_handle,
+    type: "wire",
+    data: { opticKind: e.optic_kind, isFeedback: e.is_feedback, complementInfo: e.complement_info },
+  }));
+
+  return { nodes, edges };
+}
+
+export const useCircuitStore = create<CircuitState>((set, get) => ({
+  nodes: [],
+  edges: [],
+  loading: true,
+  error: null,
+  circuitHandle: null,
+  selectedNodeId: null,
+  selectedEdgeId: null,
+  importedSchemas: [],
+  importedTheories: [],
+  importedProtocols: [],
+
+  // Evaluation state
+  sourceSchemaHandle: null,
+  inputDataJson: '{\n  "name": "Alice",\n  "legacyId": 42\n}',
+  outputDataJson: "",
+  wireDataMap: {},
+  evaluationError: null,
+  selectedWireId: null,
+
+  async initDemo() {
+    try {
+      await wasm.initWasm();
+      const { handle, graph, source_schema_handle } = wasm.getDemoCircuitWithHandle();
+      nextComponentId = 10;
+      set({
+        circuitHandle: handle,
+        sourceSchemaHandle: source_schema_handle,
+        loading: false,
+        importedSchemas: [
+          {
+            handle: source_schema_handle,
+            name: "user (demo, auto-assigned)",
+            protocol: "user-demo",
+            vertexCount: 4,
+            edgeCount: 3,
+          },
+        ],
+      });
+      get().applyGraph(graph);
+    } catch (err) {
+      set({ error: String(err), loading: false });
+    }
+  },
+
+  selectNode(id) {
+    set({ selectedNodeId: id, selectedEdgeId: null });
+  },
+  selectEdge(id) {
+    set({ selectedEdgeId: id, selectedNodeId: null });
+  },
+  selectWire(id) {
+    set({ selectedWireId: id });
+  },
+
+  addComponent(type, x, y) {
+    const handle = get().circuitHandle;
+    if (!handle && handle !== 0) return;
+    const def = COMPONENT_CATALOG.find((c) => c.type === type);
+    if (!def) return;
+
+    const id = `comp_${nextComponentId++}`;
+    const ports = portsForComponent(def).map((p) => ({
+      id: `${id}.${p.suffix}`,
+      direction: p.direction,
+      trigger: p.trigger,
+    }));
+    const graph = wasm.addComponent(handle, {
+      id,
+      component_type: type,
+      ports,
+      params: def.params.map((p) => ({ key: p.key, value: p.default })),
+    });
+
+    // Override position since WASM assigns default.
+    const { nodes, edges } = graphToReactFlow(graph);
+    const node = nodes.find((n) => n.id === id);
+    if (node) node.position = { x, y };
+    set({ nodes, edges });
+  },
+
+  removeComponent(id) {
+    const handle = get().circuitHandle;
+    if (!handle && handle !== 0) return;
+    const graph = wasm.removeComponent(handle, id);
+    get().applyGraph(graph);
+  },
+
+  connectPorts(srcPort, tgtPort) {
+    const handle = get().circuitHandle;
+    if (!handle && handle !== 0) return;
+    const wireId = `w_${nextWireId++}`;
+    const graph = wasm.addWire(handle, {
+      wire_id: wireId,
+      src_port: srcPort,
+      tgt_port: tgtPort,
+      optic_kind: "lens",
+      is_feedback: false,
+    });
+    get().applyGraph(graph);
+  },
+
+  removeWire(id) {
+    const handle = get().circuitHandle;
+    if (!handle && handle !== 0) return;
+    const graph = wasm.removeWire(handle, id);
+    get().applyGraph(graph);
+  },
+
+  updateParam(componentId, key, value) {
+    const handle = get().circuitHandle;
+    if (!handle && handle !== 0) return;
+    const graph = wasm.updateParam(handle, componentId, key, value);
+    get().applyGraph(graph);
+  },
+
+  importLensDocument(json) {
+    try {
+      const newHandle = wasm.importLensDoc(json);
+      const graph = wasm.getGraph(newHandle);
+      const oldHandle = get().circuitHandle;
+      if (oldHandle !== null) wasm.free_handle(oldHandle);
+      set({ circuitHandle: newHandle });
+      get().applyGraph(graph);
+    } catch (err) {
+      set({ error: String(err) });
+    }
+  },
+
+  importSchema(json) {
+    try {
+      const result = wasm.importSchema(json);
+      set((s) => ({
+        importedSchemas: [
+          ...s.importedSchemas,
+          {
+            handle: result.handle,
+            name: result.summary.protocol + ` (${result.summary.vertex_count}V)`,
+            protocol: result.summary.protocol,
+            vertexCount: result.summary.vertex_count,
+            edgeCount: result.summary.edge_count,
+          },
+        ],
+      }));
+    } catch (err) {
+      set({ error: String(err) });
+    }
+  },
+
+  importTheory(json) {
+    try {
+      const result = wasm.importTheory(json);
+      set((s) => ({
+        importedTheories: [
+          ...s.importedTheories,
+          {
+            handle: result.handle,
+            name: result.name,
+            sortCount: result.sort_count,
+            opCount: result.op_count,
+          },
+        ],
+      }));
+    } catch (err) {
+      set({ error: String(err) });
+    }
+  },
+
+  // ── User-defined protocols ───────────────────────────────────────
+
+  importProtocol(json) {
+    try {
+      const result = wasm.importProtocolJson(json);
+      const s = result.summary;
+      const entry: ProtocolInfo = {
+        handle: result.handle,
+        name: s.name,
+        schemaTheory: s.schema_theory,
+        instanceTheory: s.instance_theory,
+        objKindCount: s.obj_kind_count,
+        constraintSortCount: s.constraint_sort_count,
+        edgeRuleCount: s.edge_rule_count,
+        hasOrder: s.has_order,
+        hasCoproducts: s.has_coproducts,
+        hasRecursion: s.has_recursion,
+        hasCausal: s.has_causal,
+        nominalIdentity: s.nominal_identity,
+        hasDefaults: s.has_defaults,
+        hasCoercions: s.has_coercions,
+        hasMergers: s.has_mergers,
+        hasPolicies: s.has_policies,
+      };
+      set((state) => {
+        // Replace any existing entry with the same name (overwrite on re-import).
+        const others = state.importedProtocols.filter(
+          (p) => p.name.toLowerCase() !== entry.name.toLowerCase(),
+        );
+        return { importedProtocols: [...others, entry], error: null };
+      });
+    } catch (err) {
+      set({ error: String(err) });
+    }
+  },
+
+  removeProtocol(name) {
+    try {
+      const removed = wasm.removeUserProtocol(name);
+      if (removed) {
+        set((state) => ({
+          importedProtocols: state.importedProtocols.filter(
+            (p) => p.name.toLowerCase() !== name.toLowerCase(),
+          ),
+        }));
+      }
+    } catch (err) {
+      set({ error: String(err) });
+    }
+  },
+
+  refreshProtocols() {
+    try {
+      const summaries = wasm.listUserProtocols();
+      const protocols: ProtocolInfo[] = summaries.map((s) => ({
+        // listUserProtocols doesn't return handles — use -1 to indicate
+        // "not individually addressable", callers that need the full
+        // body should use getProtocolJson by name instead.
+        handle: -1,
+        name: s.name,
+        schemaTheory: s.schema_theory,
+        instanceTheory: s.instance_theory,
+        objKindCount: s.obj_kind_count,
+        constraintSortCount: s.constraint_sort_count,
+        edgeRuleCount: s.edge_rule_count,
+        hasOrder: s.has_order,
+        hasCoproducts: s.has_coproducts,
+        hasRecursion: s.has_recursion,
+        hasCausal: s.has_causal,
+        nominalIdentity: s.nominal_identity,
+        hasDefaults: s.has_defaults,
+        hasCoercions: s.has_coercions,
+        hasMergers: s.has_mergers,
+        hasPolicies: s.has_policies,
+      }));
+      set({ importedProtocols: protocols });
+    } catch (err) {
+      set({ error: String(err) });
+    }
+  },
+
+  getProtocolJson(name) {
+    try {
+      return wasm.getUserProtocolJson(name);
+    } catch (err) {
+      set({ error: String(err) });
+      return null;
+    }
+  },
+
+  // ── Schema assignment + evaluation ───────────────────────────────
+
+  assignSourceSchema(schemaHandle) {
+    const handle = get().circuitHandle;
+    if (handle === null) return;
+    try {
+      wasm.setSourceSchema(handle, schemaHandle);
+      set({ sourceSchemaHandle: schemaHandle, evaluationError: null });
+    } catch (err) {
+      set({ evaluationError: String(err) });
+    }
+  },
+
+  setInputData(json) {
+    set({ inputDataJson: json });
+  },
+
+  runEvaluation() {
+    const handle = get().circuitHandle;
+    const json = get().inputDataJson;
+    if (handle === null) {
+      set({ evaluationError: "no circuit loaded" });
+      return;
+    }
+    if (get().sourceSchemaHandle === null) {
+      set({ evaluationError: "no source schema assigned — import a schema and assign it as source" });
+      return;
+    }
+    try {
+      wasm.setInputData(handle, json);
+      const result = wasm.evaluateCircuit(handle);
+      set({
+        outputDataJson: result.output,
+        wireDataMap: result.wire_data,
+        evaluationError: null,
+      });
+    } catch (err) {
+      set({ evaluationError: String(err) });
+    }
+  },
+
+  applyModifiedOutput(json) {
+    const handle = get().circuitHandle;
+    if (handle === null) return;
+    try {
+      const restoredInput = wasm.applyModifiedOutput(handle, json);
+      set({ inputDataJson: restoredInput, outputDataJson: json, evaluationError: null });
+    } catch (err) {
+      set({ evaluationError: String(err) });
+    }
+  },
+
+  // ── Theories ─────────────────────────────────────────────────────
+
+  buildTheoryFromJson(json) {
+    try {
+      const result = wasm.compileTheoryBundle(json);
+      const detailedTheories: TheoryInfo[] = result.theories.map(([name, handle]) => {
+        try {
+          const d = wasm.getTheoryDetails(handle);
+          return {
+            handle,
+            name: d.name || name,
+            sortCount: d.sorts.length,
+            opCount: d.ops.length,
+          };
+        } catch {
+          return { handle, name, sortCount: 0, opCount: 0 };
+        }
+      });
+      set((s) => ({
+        importedTheories: [...s.importedTheories, ...detailedTheories],
+        error: null,
+      }));
+    } catch (err) {
+      set({ error: String(err) });
+    }
+  },
+
+  composeTheories(t1, t2, sharedSorts) {
+    try {
+      const newHandle = wasm.composeTheoriesViaColimit(t1, t2, sharedSorts);
+      const d = wasm.getTheoryDetails(newHandle);
+      set((s) => ({
+        importedTheories: [
+          ...s.importedTheories,
+          {
+            handle: newHandle,
+            name: d.name || "composed",
+            sortCount: d.sorts.length,
+            opCount: d.ops.length,
+          },
+        ],
+        error: null,
+      }));
+    } catch (err) {
+      set({ error: String(err) });
+    }
+  },
+
+  applyGraph(graph) {
+    const { nodes, edges } = graphToReactFlow(graph);
+    set({ nodes, edges });
+  },
+
+  setError(error) {
+    set({ error });
+  },
+}));

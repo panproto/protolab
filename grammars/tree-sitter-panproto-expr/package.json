@@ -1,0 +1,21 @@
+{
+  "name": "tree-sitter-panproto-expr",
+  "version": "0.1.0",
+  "description": "tree-sitter grammar for the panproto expression language",
+  "main": "bindings/node",
+  "keywords": ["parser", "tree-sitter", "panproto"],
+  "license": "MIT",
+  "scripts": {
+    "build": "tree-sitter generate && tree-sitter build",
+    "test": "tree-sitter test"
+  },
+  "devDependencies": {
+    "tree-sitter-cli": "^0.22.0"
+  },
+  "tree-sitter": [
+    {
+      "scope": "source.panproto-expr",
+      "file-types": ["expr", "pexpr"]
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "name": "panproto-expr",
+  "displayName": "Panproto Expression Language",
+  "description": "Syntax highlighting for the panproto expression language (.expr / .pexpr files)",
+  "version": "0.1.0",
+  "publisher": "panproto",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Programming Languages"],
+  "contributes": {
+    "languages": [
+      {
+        "id": "panproto-expr",
+        "aliases": ["Panproto Expression", "panproto-expr"],
+        "extensions": [".expr", ".pexpr"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "panproto-expr",
+        "scopeName": "source.panproto-expr",
+        "path": "./syntaxes/panproto-expr.tmLanguage.json"
+      }
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/panproto/protolab"
+  },
+  "license": "MIT"
+}
