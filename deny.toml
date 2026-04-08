@@ -38,7 +38,22 @@ allow = [
 
 [bans]
 multiple-versions = "warn"
-wildcards = "deny"
+# Wildcards are allowed because both kinds of "wildcard" dependency
+# protolab uses are version-pinned by a different mechanism than a
+# semver range:
+#
+#   1. Our internal crates (`protolab-{schema,core,eval,wasm}`) use
+#      `[dependencies] foo.workspace = true` with path-based workspace
+#      entries. `allow-wildcard-paths = true` covers those.
+#   2. Upstream `panproto-*` crates are pulled by git tag (`tag = "v0.27.3"`)
+#      rather than a version range. cargo-deny flags these as wildcards
+#      because the Cargo.toml entry carries no version field, but the git
+#      tag pins them just as tightly as a crates.io version would.
+#
+# If we ever move to crates.io-published panproto, tighten this back to
+# `wildcards = "deny"` and drop the per-crate overrides below.
+wildcards = "allow"
+allow-wildcard-paths = true
 
 [sources]
 unknown-registry = "deny"
