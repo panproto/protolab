@@ -119,9 +119,9 @@ describe("loadLexiconMapperTemplate: presentationDoc", () => {
     expect(kinds).toEqual([
       "heading",
       "paragraph",
-      "lens_chain",
       "lexicon_import",
       "input_json",
+      "lens_chain",
       "output_json",
       "run_button",
     ]);
@@ -135,20 +135,20 @@ describe("loadLexiconMapperTemplate: presentationDoc", () => {
     expect(heading!.column).toBe("");
   });
 
-  it("input_json widget is in the left column", async () => {
+  it("input_json widget spans (form layout default)", async () => {
     await loadLexiconMapperTemplate();
     const { widgets } = useCircuitStore.getState().presentationDoc;
     const input = widgets.find((w) => w.kind === "input_json");
     expect(input).toBeDefined();
-    expect(input!.column).toBe("left");
+    expect(input!.column).toBe("");
   });
 
-  it("output_json widget is in the right column", async () => {
+  it("output_json widget spans (form layout default)", async () => {
     await loadLexiconMapperTemplate();
     const { widgets } = useCircuitStore.getState().presentationDoc;
     const output = widgets.find((w) => w.kind === "output_json");
     expect(output).toBeDefined();
-    expect(output!.column).toBe("right");
+    expect(output!.column).toBe("");
   });
 
   it("run_button widget spans both columns (column = '')", async () => {

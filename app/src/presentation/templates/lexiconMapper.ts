@@ -95,10 +95,13 @@ const LENS_CHAIN: ComponentSpec[] = [
 ];
 
 /**
- * The presentation layer: UI chrome that wraps the circuit. These are
- * pure Zustand-state widgets, NOT circuit nodes. Two-column layout:
- * heading + paragraph + lexicon import span the top, input/output sit
- * in the middle columns, run button spans the bottom.
+ * The presentation layer: UI chrome that wraps the circuit.
+ *
+ * Visual order (form layout, top to bottom):
+ *   heading → paragraph → lexicon import → input → lens chain → output → run
+ *
+ * The lens chain sits between input and output so the user reads the
+ * page as "here's my data; here's the transform; here's the result".
  */
 function buildPresentationDoc(): PresentationDoc {
   const widgets: PresentationWidget[] = [
@@ -121,35 +124,35 @@ function buildPresentationDoc(): PresentationDoc {
       },
     },
     {
-      id: "w_lens_chain",
-      kind: "lens_chain",
-      column: "",
-      x: 40,
-      y: 110,
-      props: {},
-    },
-    {
       id: "w_lexicon",
       kind: "lexicon_import",
       column: "",
       x: 40,
-      y: 180,
+      y: 120,
       props: { label: "Source schema", default_nsid: DEFAULT_NSID },
     },
     {
       id: "w_input",
       kind: "input_json",
-      column: "left",
+      column: "",
       x: 40,
-      y: 360,
+      y: 300,
       props: { label: "Input (atproto post)" },
+    },
+    {
+      id: "w_lens_chain",
+      kind: "lens_chain",
+      column: "",
+      x: 40,
+      y: 600,
+      props: {},
     },
     {
       id: "w_output",
       kind: "output_json",
-      column: "right",
-      x: 540,
-      y: 360,
+      column: "",
+      x: 40,
+      y: 800,
       props: { label: "Output (timeline event)" },
     },
     {
@@ -157,7 +160,7 @@ function buildPresentationDoc(): PresentationDoc {
       kind: "run_button",
       column: "",
       x: 40,
-      y: 720,
+      y: 1100,
       props: { label: "Run mapping" },
     },
   ];
