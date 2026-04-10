@@ -251,6 +251,8 @@ interface CircuitState {
   // Evaluation state
   sourceSchemaHandle: number | null;
   targetSchemaHandle: number | null;
+  autoLensStatus: "idle" | "success" | "failed";
+  autoLensError: string | null;
   inputDataJson: string;
   outputDataJson: string;
   wireDataMap: Record<string, string>;
@@ -367,6 +369,8 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
   // Evaluation state
   sourceSchemaHandle: null,
   targetSchemaHandle: null,
+  autoLensStatus: "idle" as const,
+  autoLensError: null,
   inputDataJson: '{\n  "name": "Alice",\n  "legacyId": 42\n}',
   outputDataJson: "",
   wireDataMap: {},
@@ -701,11 +705,14 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
     if (handle === null || src === null || tgt === null) return;
     try {
       const result = wasm.autoGenerateLens(handle, src, tgt);
-      set({ evaluationError: null });
+      set({ evaluationError: null, autoLensStatus: "success", autoLensError: null });
       get().applyGraph(result.graph);
     } catch (err) {
       // Don't write to evaluationError; the user's existing circuit is
-      // still valid. Log for debugging and let the user resolve manually.
+      // still valid. Surface the failure in autoLensStatus so the
+      // LensChainWidget can show a helpful message.
+      const msg = String(err).replace(/^Error:\s*/i, "");
+      set({ autoLensStatus: "failed", autoLensError: msg });
       console.warn("Auto-lens generation failed:", err);
     }
   },

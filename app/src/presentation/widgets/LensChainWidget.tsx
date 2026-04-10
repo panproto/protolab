@@ -85,6 +85,8 @@ function StepConnector({ color, nextColor }: { color: string; nextColor: string 
  */
 export function LensChainWidget(_props: WidgetProps) {
   const nodes = useCircuitStore((s) => s.nodes);
+  const autoLensStatus = useCircuitStore((s) => s.autoLensStatus);
+  const autoLensError = useCircuitStore((s) => s.autoLensError);
 
   if (nodes.length === 0) {
     return (
@@ -152,6 +154,38 @@ export function LensChainWidget(_props: WidgetProps) {
         </kbd>{" "}
         to edit them.
       </div>
+      {autoLensStatus === "failed" && (
+        <div
+          style={{
+            fontSize: 12,
+            color: "#FF9800",
+            background: "rgba(255, 152, 0, 0.08)",
+            border: "1px solid rgba(255, 152, 0, 0.2)",
+            borderRadius: 4,
+            padding: "8px 12px",
+            marginBottom: 8,
+          }}
+        >
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>
+            Could not auto-generate a lens between these schemas
+          </div>
+          <div style={{ fontSize: 11, color: "#bbb" }}>
+            {autoLensError || "The morphism search did not find an alignment."}
+            {" "}The current lens steps are unchanged. Press Cmd+E to build or adjust the lens manually.
+          </div>
+        </div>
+      )}
+      {autoLensStatus === "success" && (
+        <div
+          style={{
+            fontSize: 11,
+            color: "#4CAF50",
+            marginBottom: 8,
+          }}
+        >
+          Lens auto-generated from source and target schemas.
+        </div>
+      )}
       {nodes.map((node, i) => {
         const d = node.data as any;
         const componentType: string = d?.componentType ?? "";

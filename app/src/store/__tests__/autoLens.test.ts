@@ -32,6 +32,8 @@ function resetStore(
       presentationDoc: emptyPresentationDoc(),
       sourceSchemaHandle: null,
       targetSchemaHandle: null,
+      autoLensStatus: "idle" as const,
+      autoLensError: null,
       inputDataJson: "",
       outputDataJson: "",
       wireDataMap: {},
@@ -112,7 +114,7 @@ describe("autoGenerateLens", () => {
     expect(useCircuitStore.getState().nodes.length).toBe(3);
   });
 
-  it("clears evaluationError on success", () => {
+  it("sets autoLensStatus to 'success' and clears evaluationError on success", () => {
     resetStore({
       circuitHandle: 0,
       sourceSchemaHandle: 1,
@@ -121,9 +123,11 @@ describe("autoGenerateLens", () => {
     });
     useCircuitStore.getState().autoGenerateLens();
     expect(useCircuitStore.getState().evaluationError).toBeNull();
+    expect(useCircuitStore.getState().autoLensStatus).toBe("success");
+    expect(useCircuitStore.getState().autoLensError).toBeNull();
   });
 
-  it("does NOT set evaluationError on failure (logs instead)", () => {
+  it("sets autoLensStatus to 'failed' with message on failure (does NOT set evaluationError)", () => {
     autoGenerateLens.mockImplementation(() => {
       throw new Error("no morphism found between schemas");
     });
@@ -135,8 +139,9 @@ describe("autoGenerateLens", () => {
     });
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     useCircuitStore.getState().autoGenerateLens();
-    // evaluationError should remain null (not polluted with auto-lens failure).
     expect(useCircuitStore.getState().evaluationError).toBeNull();
+    expect(useCircuitStore.getState().autoLensStatus).toBe("failed");
+    expect(useCircuitStore.getState().autoLensError).toContain("no morphism found");
     expect(warnSpy).toHaveBeenCalledWith(
       "Auto-lens generation failed:",
       expect.any(Error),
