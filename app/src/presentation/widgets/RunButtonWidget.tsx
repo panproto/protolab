@@ -14,6 +14,7 @@ export function RunButtonWidget({ widget }: WidgetProps) {
     <button
       data-widget="run_button"
       onClick={runEvaluation}
+      title="Run the lens forward on the input data and show the output"
       style={{
         padding: "12px 24px",
         background: "#FF9800",

@@ -80,8 +80,22 @@ export function Palette() {
   );
 }
 
+/** One-line descriptions for each component type, shown as tooltip. */
+const COMPONENT_DESCRIPTIONS: Record<string, string> = {
+  rename_field: "Iso: rename a field while preserving round-trip identity",
+  add_field: "Lens: add a new field with an optional default value",
+  drop_field: "Lens: remove a field from the record",
+  hoist_field: "Lens: lift a nested field up through an intermediate wrapper",
+  nest_field: "Lens: wrap a field inside a new parent object",
+  coerce_type: "Lens: convert a field value using a panproto expression",
+  map_items: "Traversal: apply the next lens step to each item in an array",
+  apply_expr: "Lens: apply a forward/inverse expression pair to a field",
+  compute_field: "Lens: compute a new field value from an expression",
+};
+
 function PaletteItem({ def }: { def: ComponentDef }) {
   const color = OPTIC_COLORS[def.optic] ?? "#666";
+  const description = COMPONENT_DESCRIPTIONS[def.type] ?? `${def.optic}: ${def.label}`;
 
   const onDragStart = (e: React.DragEvent) => {
     e.dataTransfer.setData("application/lens-circuit-component", def.type);
@@ -92,6 +106,7 @@ function PaletteItem({ def }: { def: ComponentDef }) {
     <div
       draggable
       onDragStart={onDragStart}
+      title={description}
       style={{
         padding: "6px 10px",
         cursor: "grab",

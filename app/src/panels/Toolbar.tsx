@@ -8,6 +8,7 @@ import { TheoryEditor } from "./TheoryEditor";
 import { ColimitComposer } from "./ColimitComposer";
 import { SchemaBrowser } from "./SchemaBrowser";
 import { ProtocolEditor } from "./ProtocolEditor";
+import { KeyboardHelp } from "./KeyboardHelp";
 
 export function Toolbar() {
   const [importOpen, setImportOpen] = useState(false);
@@ -17,6 +18,7 @@ export function Toolbar() {
   const [colimitOpen, setColimitOpen] = useState(false);
   const [schemaBrowserOpen, setSchemaBrowserOpen] = useState(false);
   const [protocolEditorOpen, setProtocolEditorOpen] = useState(false);
+  const [keysOpen, setKeysOpen] = useState(false);
   const { importLensDocument, importSchema, importTheory, importProtocol, setError } =
     useCircuitStore();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -71,28 +73,48 @@ export function Toolbar() {
       <span style={{ fontWeight: 700, fontSize: 14, marginRight: 12 }}>protolab</span>
 
       {/* Theories button */}
-      <button style={buttonStyle} onClick={() => setTheoryEditorOpen(true)}>
+      <button
+        style={buttonStyle}
+        onClick={() => setTheoryEditorOpen(true)}
+        title="Open the theory editor to build or inspect algebraic theories"
+      >
         Theories
       </button>
 
       {/* Colimit button */}
-      <button style={buttonStyle} onClick={() => setColimitOpen(true)}>
+      <button
+        style={buttonStyle}
+        onClick={() => setColimitOpen(true)}
+        title="Compose theories via colimit to define a new protocol"
+      >
         Colimit
       </button>
 
       {/* Schemas button */}
-      <button style={buttonStyle} onClick={() => setSchemaBrowserOpen(true)}>
+      <button
+        style={buttonStyle}
+        onClick={() => setSchemaBrowserOpen(true)}
+        title="Browse imported schemas and assign source or target"
+      >
         Schemas
       </button>
 
       {/* Protocols button */}
-      <button style={buttonStyle} onClick={() => setProtocolEditorOpen(true)}>
+      <button
+        style={buttonStyle}
+        onClick={() => setProtocolEditorOpen(true)}
+        title="Define a custom protocol (object kinds and edge rules)"
+      >
         Protocols
       </button>
 
       {/* Import dropdown */}
       <div style={{ position: "relative" }}>
-        <button style={buttonStyle} onClick={() => setImportOpen(!importOpen)}>
+        <button
+          style={buttonStyle}
+          onClick={() => setImportOpen(!importOpen)}
+          title="Import a lens document, schema, theory, or protocol from JSON"
+        >
           Import ▾
         </button>
         {importOpen && (
@@ -226,11 +248,31 @@ export function Toolbar() {
         </div>
       )}
 
+      {/* Presentation mode toggle */}
+      <button
+        style={{ ...buttonStyle, marginLeft: "auto" }}
+        onClick={() => useCircuitStore.getState().setMode("presentation")}
+        title="Switch to presentation mode (Cmd+E or Ctrl+E)"
+      >
+        Presentation
+      </button>
+
+      {/* Keyboard shortcut help */}
+      <button
+        style={{ ...buttonStyle, fontWeight: 700 }}
+        onClick={() => setKeysOpen(true)}
+        title="Keyboard shortcut reference"
+        aria-label="Keyboard shortcuts"
+      >
+        ?
+      </button>
+
       {/* Modals */}
       {theoryEditorOpen && <TheoryEditor onClose={() => setTheoryEditorOpen(false)} />}
       {colimitOpen && <ColimitComposer onClose={() => setColimitOpen(false)} />}
       {schemaBrowserOpen && <SchemaBrowser onClose={() => setSchemaBrowserOpen(false)} />}
       {protocolEditorOpen && <ProtocolEditor onClose={() => setProtocolEditorOpen(false)} />}
+      {keysOpen && <KeyboardHelp onClose={() => setKeysOpen(false)} />}
     </div>
   );
 }

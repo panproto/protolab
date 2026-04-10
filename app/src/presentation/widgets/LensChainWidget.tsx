@@ -106,6 +106,52 @@ export function LensChainWidget(_props: WidgetProps) {
         gap: 0,
       }}
     >
+      {/* Info hint: these are the real circuit components */}
+      <div
+        style={{
+          fontSize: 11,
+          color: "#666",
+          marginBottom: 8,
+          display: "flex",
+          alignItems: "center",
+          gap: 4,
+        }}
+      >
+        <span
+          title="These are the actual circuit components. Press Cmd+E to edit them."
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: 14,
+            height: 14,
+            borderRadius: "50%",
+            border: "1px solid #555",
+            fontSize: 9,
+            color: "#777",
+            cursor: "default",
+            flexShrink: 0,
+          }}
+        >
+          i
+        </span>
+        These are the actual circuit components. Press{" "}
+        <kbd
+          style={{
+            display: "inline-block",
+            padding: "0 4px",
+            background: "oklch(0.22 0.01 250)",
+            border: "1px solid oklch(0.35 0.01 250)",
+            borderRadius: 3,
+            fontFamily: "ui-monospace, SF Mono, monospace",
+            fontSize: 10,
+            color: "#bbb",
+          }}
+        >
+          Cmd+E
+        </kbd>{" "}
+        to edit them.
+      </div>
       {nodes.map((node, i) => {
         const d = node.data as any;
         const componentType: string = d?.componentType ?? "";

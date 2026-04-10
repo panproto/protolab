@@ -5,7 +5,7 @@
  * with Toolbar on top. Full interactive editing via WASM backend.
  */
 
-import { useEffect, useCallback, useRef } from "react";
+import { useEffect, useCallback, useRef, useState } from "react";
 import {
   ReactFlow,
   Background,
@@ -28,6 +28,7 @@ import { Palette } from "./panels/Palette";
 import { Inspector } from "./panels/Inspector";
 import { Toolbar } from "./panels/Toolbar";
 import { DataPanel } from "./panels/DataPanel";
+import { KeyboardHelp } from "./panels/KeyboardHelp";
 import { useCircuitStore } from "./store/circuitStore";
 import { PresentationCanvas } from "./presentation/PresentationCanvas";
 import { PresentationToolbar } from "./presentation/PresentationToolbar";
@@ -205,6 +206,7 @@ export default function App() {
   const mode = useCircuitStore((s) => s.mode);
   const setMode = useCircuitStore((s) => s.setMode);
   const applyGraph = useCircuitStore((s) => s.applyGraph);
+  const [keysOpen, setKeysOpen] = useState(false);
 
   // Init: load demo (required for WASM initialization + default source
   // schema), then apply URL state. The default landing — no query params
@@ -277,6 +279,25 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [mode, setMode]);
 
+  // "?" opens the keyboard shortcut help (skip when an input is focused).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "?") return;
+      const t = e.target as HTMLElement | null;
+      const tag = t?.tagName ?? "";
+      if (
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        (t && (t as HTMLElement).isContentEditable)
+      ) {
+        return;
+      }
+      setKeysOpen(true);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   if (error) {
     return (
       <div style={{ color: "#F44336", padding: 32, fontFamily: "monospace", fontSize: 14 }}>
@@ -303,6 +324,7 @@ export default function App() {
         <div style={{ flex: 1, minHeight: 0 }}>
           <PresentationCanvas />
         </div>
+        {keysOpen && <KeyboardHelp onClose={() => setKeysOpen(false)} />}
       </div>
     );
   }
@@ -320,6 +342,7 @@ export default function App() {
           <Inspector />
         </div>
         <DataPanel />
+        {keysOpen && <KeyboardHelp onClose={() => setKeysOpen(false)} />}
       </div>
     </ReactFlowProvider>
   );

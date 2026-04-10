@@ -127,6 +127,7 @@ export function SchemaBrowser({ onClose }: { onClose: () => void }) {
                       onClose();
                     }}
                     disabled={sourceSchemaHandle === s.handle}
+                    title="Set this schema as the circuit source (left side of the lens)"
                   >
                     {sourceSchemaHandle === s.handle ? "Source ✓" : "Use as source"}
                   </button>
@@ -137,6 +138,7 @@ export function SchemaBrowser({ onClose }: { onClose: () => void }) {
                       onClose();
                     }}
                     disabled={targetSchemaHandle === s.handle}
+                    title="Set this schema as the circuit target (right side of the lens)"
                   >
                     {targetSchemaHandle === s.handle ? "Target ✓" : "Use as target"}
                   </button>

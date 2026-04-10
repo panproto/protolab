@@ -268,6 +268,7 @@ function NodeInspector({ node }: { node: any }) {
 
       <button
         onClick={() => removeComponent(node.id)}
+        title="Remove this component from the circuit (Backspace)"
         style={{
           padding: "4px 10px",
           background: "#F44336",
@@ -303,6 +304,7 @@ function EdgeInspector({ edge }: { edge: any }) {
       </div>
       <button
         onClick={() => removeWire(edge.id)}
+        title="Remove this wire from the circuit (Backspace)"
         style={{
           padding: "4px 10px",
           background: "#F44336",
@@ -412,20 +414,30 @@ function ExportButtons({ handle }: { handle: number }) {
     <div>
       <div style={{ fontSize: 10, color: "#777", marginBottom: 4 }}>Export</div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-        <button style={buttonStyle} onClick={() => download(wasm.exportJson(handle), "circuit.json")}>
+        <button
+          style={buttonStyle}
+          title="Download the circuit as a schema JSON document"
+          onClick={() => download(wasm.exportJson(handle), "circuit.json")}
+        >
           Schema JSON
         </button>
         <button
           style={buttonStyle}
+          title="Download the circuit as a panproto lens document (JSON)"
           onClick={() => download(wasm.exportLensJson(handle), "lens.json")}
         >
           Lens JSON
         </button>
-        <button style={buttonStyle} onClick={() => download(wasm.exportYaml(handle), "lens.yaml")}>
+        <button
+          style={buttonStyle}
+          title="Download the circuit as a YAML lens document"
+          onClick={() => download(wasm.exportYaml(handle), "lens.yaml")}
+        >
           YAML
         </button>
         <button
           style={buttonStyle}
+          title="Download the circuit as a Nickel lens specification"
           onClick={() => download(wasm.exportNickel(handle), "lens.ncl")}
         >
           Nickel

@@ -287,6 +287,7 @@ export function LexiconImportWidget({ widget }: WidgetProps) {
         <button
           onClick={handleResolve}
           disabled={busy}
+          title="Fetch this lexicon schema from lexicon.garden and install it"
           style={{
             padding: "6px 12px",
             background: busy ? "oklch(0.22 0.01 250)" : "#9C27B0",
@@ -414,6 +415,7 @@ export function LexiconImportWidget({ widget }: WidgetProps) {
           />
           <button
             onClick={handlePasteLoad}
+            title="Parse the pasted JSON and install it as the schema"
             style={{
               alignSelf: "flex-start",
               padding: "4px 10px",
