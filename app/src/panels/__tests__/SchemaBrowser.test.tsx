@@ -19,6 +19,7 @@ function resetStore(overrides: Partial<ReturnType<typeof useCircuitStore.getStat
       importedTheories: [],
       importedProtocols: [],
       sourceSchemaHandle: null,
+      targetSchemaHandle: null,
       inputDataJson: "",
       outputDataJson: "",
       wireDataMap: {},

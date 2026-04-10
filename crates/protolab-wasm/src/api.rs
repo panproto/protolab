@@ -582,6 +582,199 @@ fn parse_atproto_lexicon_inner(json_source: &str) -> Result<Vec<u8>, WasmError> 
         .map_err(|e| WasmError::SerializationFailed(e.to_string()))
 }
 
+/// Auto-generate a lens between a source and target schema.
+///
+/// Wraps `panproto_lens::auto_lens::auto_generate`. Takes the slab
+/// handles for the source schema, target schema, and the circuit (to
+/// install the auto-generated lens into). Returns a msgpack-encoded
+/// result with the alignment quality score and the circuit graph
+/// updated with the auto-generated components.
+///
+/// If `target_handle` equals `source_handle`, the lens is the identity.
+#[wasm_bindgen]
+pub fn auto_generate_lens(
+    circuit_handle: u32,
+    source_handle: u32,
+    target_handle: u32,
+) -> Result<Vec<u8>, JsError> {
+    auto_generate_lens_inner(circuit_handle, source_handle, target_handle).map_err(Into::into)
+}
+
+fn auto_generate_lens_inner(
+    circuit_handle: u32,
+    source_handle: u32,
+    target_handle: u32,
+) -> Result<Vec<u8>, WasmError> {
+    use panproto_lens::auto_lens::{AutoLensConfig, auto_generate};
+
+    let source = slab::get_schema(source_handle)?;
+    let target = slab::get_schema(target_handle)?;
+    let protocol = panproto_protocols_default(&source);
+
+    let config = AutoLensConfig {
+        try_overlap: true,
+        ..Default::default()
+    };
+
+    let result = auto_generate(&source, &target, &protocol, &config)
+        .map_err(|e| WasmError::DeserializationFailed(format!("auto_generate: {e}")))?;
+
+    // Convert the protolens chain into circuit components and install
+    // them into the circuit. Each elementary protolens becomes a
+    // component vertex with the appropriate type and params.
+    slab::with_resource_mut(circuit_handle, |r| {
+        if let Resource::Circuit(state) = r {
+            // Clear existing components (fresh auto-generation).
+            let existing_ids: Vec<panproto_gat::Name> = state
+                .schema
+                .vertices
+                .keys()
+                .filter(|v| {
+                    state
+                        .schema
+                        .vertices
+                        .get(*v)
+                        .is_some_and(|vertex| vertex.kind.as_ref() == "component")
+                })
+                .cloned()
+                .collect();
+            for id in existing_ids {
+                mutate::remove_component(&mut state.schema, &id.to_string()).ok();
+            }
+
+            // Install the auto-generated chain as circuit components.
+            install_protolens_chain_as_components(&mut state.schema, &result.chain);
+        }
+    })?;
+
+    let graph = get_circuit_graph_inner(circuit_handle)?;
+
+    #[derive(Serialize)]
+    struct AutoLensResponse {
+        alignment_quality: f64,
+        graph: Vec<u8>,
+    }
+
+    rmp_serde::to_vec_named(&AutoLensResponse {
+        alignment_quality: result.alignment_quality,
+        graph,
+    })
+    .map_err(|e| WasmError::SerializationFailed(e.to_string()))
+}
+
+/// Convert a protolens chain's elementary steps into circuit components.
+fn install_protolens_chain_as_components(
+    schema: &mut panproto_schema::Schema,
+    chain: &panproto_lens::protolens::ProtolensChain,
+) {
+    use protolab_schema::mutate::PortSpec;
+
+    let default_ports = vec![
+        PortSpec {
+            id: String::new(), // filled per component
+            direction: protolab_schema::Direction::Input,
+            trigger: protolab_schema::TriggerMode::Hot,
+        },
+        PortSpec {
+            id: String::new(),
+            direction: protolab_schema::Direction::Output,
+            trigger: protolab_schema::TriggerMode::Hot,
+        },
+        PortSpec {
+            id: String::new(),
+            direction: protolab_schema::Direction::Parameter,
+            trigger: protolab_schema::TriggerMode::Cold,
+        },
+    ];
+
+    let mut prev_comp_id: Option<String> = None;
+    let mut wire_idx = 200;
+
+    for (i, step) in chain.steps.iter().enumerate() {
+        let comp_id = format!("auto_{i}");
+        let (comp_type, params) = classify_step(&step.target.transform);
+
+        let ports: Vec<PortSpec> = default_ports
+            .iter()
+            .enumerate()
+            .map(|(pi, p)| {
+                let suffix = match pi {
+                    0 => "in",
+                    1 => "out",
+                    _ => "param",
+                };
+                PortSpec {
+                    id: format!("{comp_id}.{suffix}"),
+                    direction: p.direction,
+                    trigger: p.trigger,
+                }
+            })
+            .collect();
+
+        mutate::add_component(schema, &comp_id, &comp_type, &ports).ok();
+        for (key, value) in &params {
+            mutate::update_param(schema, &comp_id, key, value).ok();
+        }
+
+        // Wire to the previous component.
+        if let Some(ref prev) = prev_comp_id {
+            let wire_id = format!("aw_{wire_idx}");
+            wire_idx += 1;
+            mutate::add_wire(
+                schema,
+                &wire_id,
+                &format!("{prev}.out"),
+                &format!("{comp_id}.in"),
+                Some("lens"),
+                false,
+            )
+            .ok();
+        }
+
+        prev_comp_id = Some(comp_id);
+    }
+}
+
+/// Map a protolens Transform variant to a component type + params.
+fn classify_step(
+    transform: &panproto_gat::TheoryTransform,
+) -> (String, Vec<(String, String)>) {
+    use panproto_gat::TheoryTransform;
+    match transform {
+        TheoryTransform::RenameEdgeName {
+            old_name, new_name, ..
+        } => (
+            "rename_field".into(),
+            vec![
+                ("old_name".into(), old_name.to_string()),
+                ("new_name".into(), new_name.to_string()),
+            ],
+        ),
+        TheoryTransform::AddSort { sort, .. } => (
+            "add_field".into(),
+            vec![
+                ("field_name".into(), sort.name.to_string()),
+                ("field_kind".into(), "string".into()),
+                ("default".into(), String::new()),
+            ],
+        ),
+        TheoryTransform::DropSort(name) => (
+            "drop_field".into(),
+            vec![("field_name".into(), name.to_string())],
+        ),
+        _ => {
+            // Fallback: unknown transform type rendered as a comment.
+            (
+                "rename_field".into(),
+                vec![
+                    ("old_name".into(), format!("{transform:?}")),
+                    ("new_name".into(), String::new()),
+                ],
+            )
+        }
+    }
+}
+
 /// Import a theory definition from JSON. Returns summary msgpack.
 #[wasm_bindgen]
 pub fn import_theory_json(json_source: &str) -> Result<Vec<u8>, JsError> {

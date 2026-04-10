@@ -6,8 +6,14 @@
 import { useCircuitStore } from "../store/circuitStore";
 
 export function SchemaBrowser({ onClose }: { onClose: () => void }) {
-  const { importedSchemas, importedTheories, sourceSchemaHandle, assignSourceSchema } =
-    useCircuitStore();
+  const {
+    importedSchemas,
+    importedTheories,
+    sourceSchemaHandle,
+    targetSchemaHandle,
+    assignSourceSchema,
+    assignTargetSchema,
+  } = useCircuitStore();
 
   const buttonStyle: React.CSSProperties = {
     padding: "3px 8px",
@@ -90,9 +96,17 @@ export function SchemaBrowser({ onClose }: { onClose: () => void }) {
                 style={{
                   padding: "6px 10px",
                   background:
-                    sourceSchemaHandle === s.handle ? "oklch(0.2 0.05 220)" : "oklch(0.14 0.01 250)",
+                    sourceSchemaHandle === s.handle
+                      ? "oklch(0.2 0.05 220)"
+                      : targetSchemaHandle === s.handle
+                        ? "oklch(0.2 0.03 300)"
+                        : "oklch(0.14 0.01 250)",
                   borderLeft:
-                    sourceSchemaHandle === s.handle ? "3px solid #2196F3" : "3px solid transparent",
+                    sourceSchemaHandle === s.handle
+                      ? "3px solid #2196F3"
+                      : targetSchemaHandle === s.handle
+                        ? "3px solid #9C27B0"
+                        : "3px solid transparent",
                   marginBottom: 4,
                   borderRadius: 3,
                   display: "flex",
@@ -105,16 +119,28 @@ export function SchemaBrowser({ onClose }: { onClose: () => void }) {
                     Protocol: {s.protocol} · Vertices: {s.vertexCount} · Edges: {s.edgeCount}
                   </div>
                 </div>
-                <button
-                  style={{ ...buttonStyle, marginLeft: "auto" }}
-                  onClick={() => {
-                    assignSourceSchema(s.handle);
-                    onClose();
-                  }}
-                  disabled={sourceSchemaHandle === s.handle}
-                >
-                  {sourceSchemaHandle === s.handle ? "Source ✓" : "Use as source"}
-                </button>
+                <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
+                  <button
+                    style={buttonStyle}
+                    onClick={() => {
+                      assignSourceSchema(s.handle);
+                      onClose();
+                    }}
+                    disabled={sourceSchemaHandle === s.handle}
+                  >
+                    {sourceSchemaHandle === s.handle ? "Source ✓" : "Use as source"}
+                  </button>
+                  <button
+                    style={{ ...buttonStyle, background: "#9C27B0" }}
+                    onClick={() => {
+                      assignTargetSchema(s.handle);
+                      onClose();
+                    }}
+                    disabled={targetSchemaHandle === s.handle}
+                  >
+                    {targetSchemaHandle === s.handle ? "Target ✓" : "Use as target"}
+                  </button>
+                </div>
               </div>
             ))
           )}

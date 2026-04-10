@@ -270,6 +270,13 @@ export const importSchema = vi.fn(
   }),
 );
 
+export const autoGenerateLens = vi.fn(
+  (_circuitHandle: number, _sourceHandle: number, _targetHandle: number) => ({
+    alignmentQuality: 0.85,
+    graph: defaultGraph(),
+  }),
+);
+
 export const parseAtprotoLexicon = vi.fn(
   (_jsonSource: string): SchemaImportResult => ({
     handle: 7,
@@ -426,6 +433,10 @@ export function resetMockBridge(): void {
   importSchema.mockImplementation(() => ({
     handle: 1,
     summary: { protocol: "mock-protocol", vertex_count: 2, edge_count: 1 },
+  }));
+  autoGenerateLens.mockImplementation(() => ({
+    alignmentQuality: 0.85,
+    graph: defaultGraph(),
   }));
   parseAtprotoLexicon.mockImplementation(() => ({
     handle: 7,

@@ -250,6 +250,7 @@ interface CircuitState {
 
   // Evaluation state
   sourceSchemaHandle: number | null;
+  targetSchemaHandle: number | null;
   inputDataJson: string;
   outputDataJson: string;
   wireDataMap: Record<string, string>;
@@ -290,6 +291,8 @@ interface CircuitState {
 
   // Schema assignment + evaluation
   assignSourceSchema(schemaHandle: number): void;
+  assignTargetSchema(schemaHandle: number | null): void;
+  autoGenerateLens(): void;
   setInputData(json: string): void;
   runEvaluation(): void;
   applyModifiedOutput(json: string): void;
@@ -363,6 +366,7 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
 
   // Evaluation state
   sourceSchemaHandle: null,
+  targetSchemaHandle: null,
   inputDataJson: '{\n  "name": "Alice",\n  "legacyId": 42\n}',
   outputDataJson: "",
   wireDataMap: {},
@@ -675,6 +679,31 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
       get().applyGraph(graph);
     } catch (err) {
       set({ evaluationError: String(err) });
+    }
+  },
+
+  assignTargetSchema(schemaHandle) {
+    set({ targetSchemaHandle: schemaHandle });
+    // Auto-generate the lens when both schemas are set and the user
+    // hasn't manually built a circuit (no components yet, or the
+    // existing components were auto-generated).
+    if (schemaHandle !== null) {
+      get().autoGenerateLens();
+    }
+  },
+
+  autoGenerateLens() {
+    const handle = get().circuitHandle;
+    const src = get().sourceSchemaHandle;
+    // Target defaults to source when not explicitly set.
+    const tgt = get().targetSchemaHandle ?? src;
+    if (handle === null || src === null || tgt === null) return;
+    try {
+      const result = wasm.autoGenerateLens(handle, src, tgt);
+      set({ evaluationError: null });
+      get().applyGraph(result.graph);
+    } catch (err) {
+      set({ evaluationError: `Auto-lens failed: ${err}` });
     }
   },
 

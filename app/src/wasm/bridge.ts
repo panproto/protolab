@@ -39,6 +39,7 @@ import init, {
   evaluate_expression,
   list_expr_builtins,
   parse_atproto_lexicon as parse_atproto_lexicon_wasm,
+  auto_generate_lens as auto_generate_lens_wasm,
 } from "./pkg/protolab_wasm.js";
 import { encode, decode } from "@msgpack/msgpack";
 
@@ -246,6 +247,33 @@ export function importSchema(jsonSource: string): SchemaImportResult {
 export function parseAtprotoLexicon(jsonSource: string): SchemaImportResult {
   const result = parse_atproto_lexicon_wasm(jsonSource);
   return decode(result) as SchemaImportResult;
+}
+
+export interface AutoLensResult {
+  alignment_quality: number;
+  graph: Uint8Array;
+}
+
+/**
+ * Auto-generate a lens between source and target schemas.
+ *
+ * Uses panproto's `auto_lens::auto_generate` pipeline: morphism
+ * alignment → endofunctor factorization → protolens chain → circuit
+ * components. The circuit is cleared and rebuilt with the auto-generated
+ * components. Returns the alignment quality score (0.0 to 1.0).
+ *
+ * If `targetHandle` is null, the source schema is used as the target
+ * (identity lens).
+ */
+export function autoGenerateLens(
+  circuitHandle: number,
+  sourceHandle: number,
+  targetHandle: number,
+): { alignmentQuality: number; graph: CircuitGraph } {
+  const result = auto_generate_lens_wasm(circuitHandle, sourceHandle, targetHandle);
+  const parsed = decode(result) as AutoLensResult;
+  const graph = decode(parsed.graph) as CircuitGraph;
+  return { alignmentQuality: parsed.alignment_quality, graph };
 }
 
 export function importTheory(jsonSource: string): TheoryImportResult {

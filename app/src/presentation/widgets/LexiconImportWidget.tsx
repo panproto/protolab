@@ -60,7 +60,9 @@ export function LexiconImportWidget({ widget }: WidgetProps) {
   const [autocompleteAvailable, setAutocompleteAvailable] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  const role = getProp(widget, "role", "source"); // "source" or "target"
   const assignSourceSchema = useCircuitStore((s) => s.assignSourceSchema);
+  const assignTargetSchema = useCircuitStore((s) => s.assignTargetSchema);
   const setInputData = useCircuitStore((s) => s.setInputData);
 
   // Debounced autocomplete: fetch lexicon.garden suggestions 150ms
@@ -120,9 +122,14 @@ export function LexiconImportWidget({ widget }: WidgetProps) {
           },
         ],
       }));
-      assignSourceSchema(result.handle);
+      if (role === "target") {
+        assignTargetSchema(result.handle);
+      } else {
+        assignSourceSchema(result.handle);
+      }
 
-      if (seededFromNsid) {
+      // Seed input with a canonical example when resolving a source schema.
+      if (role === "source" && seededFromNsid) {
         const example = exampleRecordForNsid(seededFromNsid);
         if (example) {
           const current = useCircuitStore.getState().inputDataJson;

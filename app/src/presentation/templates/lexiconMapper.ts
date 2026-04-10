@@ -118,9 +118,14 @@ function buildPresentationDoc(): PresentationDoc {
       },
     },
     {
-      id: "w_lexicon",
+      id: "w_source_schema",
       kind: "lexicon_import",
-      props: { label: "Source schema", default_nsid: DEFAULT_NSID },
+      props: { label: "Source schema", default_nsid: DEFAULT_NSID, role: "source" },
+    },
+    {
+      id: "w_target_schema",
+      kind: "lexicon_import",
+      props: { label: "Target schema (optional; defaults to source)", default_nsid: "", role: "target" },
     },
     {
       id: "w_input",
@@ -184,6 +189,7 @@ export function loadLexiconMapperTemplate(): void {
       nodes: [],
       edges: [],
       sourceSchemaHandle: null,
+      targetSchemaHandle: null,
       importedSchemas: [],
       outputDataJson: "",
       wireDataMap: {},

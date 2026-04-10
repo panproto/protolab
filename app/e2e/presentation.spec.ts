@@ -36,7 +36,8 @@ base.describe("default landing", () => {
     await expect(page.locator('[data-widget="heading"]')).toBeVisible();
     await expect(page.locator('[data-widget="paragraph"]')).toBeVisible();
     await expect(page.locator('[data-widget="lens_chain"]')).toBeVisible();
-    await expect(page.locator('[data-widget="lexicon_import"]')).toBeVisible();
+    // Two lexicon_import widgets: source + target.
+    await expect(page.locator('[data-widget="lexicon_import"]').first()).toBeVisible();
     await expect(page.locator('[data-widget="input_json"]')).toBeVisible();
     await expect(page.locator('[data-widget="output_json"]')).toBeVisible();
     await expect(page.locator('[data-widget="run_button"]')).toBeVisible();
