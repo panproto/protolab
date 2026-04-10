@@ -187,8 +187,6 @@ export interface ProtocolInfo {
  */
 export type ViewMode = "edit" | "presentation";
 
-export type PresentationLayout = "free" | "form" | "two_column";
-
 /**
  * Kinds of widgets that can appear in the presentation layer. Each kind
  * has a matching renderer in `presentation/widgets/`.
@@ -213,13 +211,6 @@ export type WidgetKind =
 export interface PresentationWidget {
   id: string;
   kind: WidgetKind;
-  /** Column for two_column layout: "" spans, "left"/"right" go into
-   *  the respective column. */
-  column: "" | "left" | "right";
-  /** Absolute coordinates for `free` layout. Ignored by `form` and
-   *  treated as z-order hints by `two_column`. */
-  x: number;
-  y: number;
   /** Arbitrary string-keyed config. Each widget reads its own keys. */
   props: Record<string, string>;
 }
@@ -232,12 +223,11 @@ export interface PresentationWidget {
  */
 export interface PresentationDoc {
   title: string;
-  layout: PresentationLayout;
   widgets: PresentationWidget[];
 }
 
 export function emptyPresentationDoc(): PresentationDoc {
-  return { title: "protolab", layout: "free", widgets: [] };
+  return { title: "protolab", widgets: [] };
 }
 
 // ── Store ───────────────────────────────────────────────────────────
@@ -284,7 +274,6 @@ interface CircuitState {
   // Presentation mode
   setMode(mode: ViewMode): void;
   setPresentationDoc(doc: PresentationDoc): void;
-  setPresentationLayout(layout: PresentationLayout): void;
   setPresentationTitle(title: string): void;
   addPresentationWidget(widget: PresentationWidget): void;
   updatePresentationWidget(id: string, patch: Partial<PresentationWidget>): void;
@@ -356,17 +345,6 @@ function initialModeFromUrl(): ViewMode {
   return p.get("mode") === "presentation" ? "presentation" : "edit";
 }
 
-function initialLayoutFromUrl(): PresentationLayout {
-  if (typeof window === "undefined") return "free";
-  const p = new URLSearchParams(window.location.search);
-  const v = p.get("layout");
-  return v === "form" || v === "two_column" || v === "free" ? v : "free";
-}
-
-function initialPresentationDoc(): PresentationDoc {
-  return { ...emptyPresentationDoc(), layout: initialLayoutFromUrl() };
-}
-
 export const useCircuitStore = create<CircuitState>((set, get) => ({
   nodes: [],
   edges: [],
@@ -381,7 +359,7 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
 
   // Presentation mode
   mode: initialModeFromUrl(),
-  presentationDoc: initialPresentationDoc(),
+  presentationDoc: emptyPresentationDoc(),
 
   // Evaluation state
   sourceSchemaHandle: null,
@@ -503,18 +481,6 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
 
   setPresentationDoc(doc) {
     set({ presentationDoc: doc });
-  },
-
-  setPresentationLayout(layout) {
-    set((s) => ({ presentationDoc: { ...s.presentationDoc, layout } }));
-    if (typeof window !== "undefined") {
-      const p = new URLSearchParams(window.location.search);
-      if (layout === "free") p.delete("layout");
-      else p.set("layout", layout);
-      const q = p.toString();
-      const url = q ? `${window.location.pathname}?${q}` : window.location.pathname;
-      window.history.replaceState(null, "", url);
-    }
   },
 
   setPresentationTitle(title) {

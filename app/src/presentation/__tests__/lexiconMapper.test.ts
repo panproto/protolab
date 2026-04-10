@@ -100,12 +100,6 @@ describe("loadLexiconMapperTemplate: presentationDoc", () => {
     expect(presentationDoc.title).toBe("Lexicon Mapper");
   });
 
-  it("sets the presentation layout to 'form'", async () => {
-    await loadLexiconMapperTemplate();
-    const { presentationDoc } = useCircuitStore.getState();
-    expect(presentationDoc.layout).toBe("form");
-  });
-
   it("installs exactly 6 widgets", async () => {
     await loadLexiconMapperTemplate();
     const { widgets } = useCircuitStore.getState().presentationDoc;
@@ -125,38 +119,6 @@ describe("loadLexiconMapperTemplate: presentationDoc", () => {
       "output_json",
       "run_button",
     ]);
-  });
-
-  it("heading widget spans both columns (column = '')", async () => {
-    await loadLexiconMapperTemplate();
-    const { widgets } = useCircuitStore.getState().presentationDoc;
-    const heading = widgets.find((w) => w.kind === "heading");
-    expect(heading).toBeDefined();
-    expect(heading!.column).toBe("");
-  });
-
-  it("input_json widget spans (form layout default)", async () => {
-    await loadLexiconMapperTemplate();
-    const { widgets } = useCircuitStore.getState().presentationDoc;
-    const input = widgets.find((w) => w.kind === "input_json");
-    expect(input).toBeDefined();
-    expect(input!.column).toBe("");
-  });
-
-  it("output_json widget spans (form layout default)", async () => {
-    await loadLexiconMapperTemplate();
-    const { widgets } = useCircuitStore.getState().presentationDoc;
-    const output = widgets.find((w) => w.kind === "output_json");
-    expect(output).toBeDefined();
-    expect(output!.column).toBe("");
-  });
-
-  it("run_button widget spans both columns (column = '')", async () => {
-    await loadLexiconMapperTemplate();
-    const { widgets } = useCircuitStore.getState().presentationDoc;
-    const run = widgets.find((w) => w.kind === "run_button");
-    expect(run).toBeDefined();
-    expect(run!.column).toBe("");
   });
 
   it("lexicon_import widget has the default NSID set to 'app.bsky.feed.post'", async () => {

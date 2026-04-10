@@ -46,25 +46,32 @@ function summarizeParams(
 }
 
 /**
- * SVG connector drawn between adjacent step cards: a vertical line with
- * a gradient from the previous step's optic color to the next, capped
- * with a small downward-pointing arrowhead.
+ * SVG connector between adjacent step cards: a short vertical line with
+ * a color gradient, capped by a filled triangle. Vertically centered in
+ * a fixed-height box so the gap above and below each card is equal.
  */
 function StepConnector({ color, nextColor }: { color: string; nextColor: string }) {
   const id = `grad-${color}-${nextColor}`.replace(/[^a-zA-Z0-9-]/g, "");
   return (
-    <div style={{ display: "flex", justifyContent: "center", padding: "0" }}>
-      <svg width="24" height="28" viewBox="0 0 24 28" fill="none">
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        height: 28,
+      }}
+    >
+      <svg width="16" height="20" viewBox="0 0 16 20" fill="none">
         <defs>
           <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={color} stopOpacity="0.6" />
-            <stop offset="100%" stopColor={nextColor} stopOpacity="0.6" />
+            <stop offset="0%" stopColor={color} stopOpacity="0.5" />
+            <stop offset="100%" stopColor={nextColor} stopOpacity="0.5" />
           </linearGradient>
         </defs>
         {/* Vertical stem */}
-        <line x1="12" y1="0" x2="12" y2="20" stroke={`url(#${id})`} strokeWidth="2" />
-        {/* Arrowhead */}
-        <path d="M7 18 L12 26 L17 18" fill="none" stroke={nextColor} strokeWidth="1.5" strokeOpacity="0.7" strokeLinejoin="round" />
+        <line x1="8" y1="0" x2="8" y2="12" stroke={`url(#${id})`} strokeWidth="2" />
+        {/* Filled triangle */}
+        <path d="M4 12 L8 19 L12 12 Z" fill={nextColor} fillOpacity="0.5" />
       </svg>
     </div>
   );

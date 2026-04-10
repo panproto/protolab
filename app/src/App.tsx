@@ -218,8 +218,6 @@ export default function App() {
       await initDemo();
       if (cancelled) return;
       const url = readUrlState();
-      const search = window.location.search;
-      const hasParams = search.length > 0 && search !== "?";
 
       if (url.circuitJson) {
         // `?c=` override: decode the serialized lens doc into a fresh

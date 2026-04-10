@@ -53,9 +53,6 @@ function makeWidget(patch: Partial<PresentationWidget> = {}): PresentationWidget
   return {
     id: "w1",
     kind: "heading",
-    column: "",
-    x: 0,
-    y: 0,
     props: { text: "Hello", level: "1" },
     ...patch,
   };
@@ -84,17 +81,9 @@ describe("presentation: store actions", () => {
   });
 
   it("setPresentationDoc replaces the whole doc", () => {
-    const doc = docWith([makeWidget()], { title: "Test", layout: "two_column" });
+    const doc = docWith([makeWidget()], { title: "Test" });
     useCircuitStore.getState().setPresentationDoc(doc);
     expect(useCircuitStore.getState().presentationDoc).toEqual(doc);
-  });
-
-  it("setPresentationLayout updates layout and reflects ?layout in URL", () => {
-    useCircuitStore.getState().setPresentationLayout("two_column");
-    expect(useCircuitStore.getState().presentationDoc.layout).toBe("two_column");
-    expect(window.location.search).toContain("layout=two_column");
-    useCircuitStore.getState().setPresentationLayout("free");
-    expect(window.location.search).not.toContain("layout=");
   });
 
   it("setPresentationTitle updates the title", () => {
@@ -114,11 +103,9 @@ describe("presentation: store actions", () => {
       makeWidget({ id: "w_a", props: { text: "old", level: "1" } }),
     );
     useCircuitStore.getState().updatePresentationWidget("w_a", {
-      column: "left",
       props: { text: "new" },
     });
     const w = useCircuitStore.getState().presentationDoc.widgets[0];
-    expect(w.column).toBe("left");
     expect(w.props.text).toBe("new");
     // level survives the merge
     expect(w.props.level).toBe("1");
@@ -172,41 +159,12 @@ describe("presentation: PresentationCanvas", () => {
       makeWidget({ id: "p", kind: "paragraph", props: { text: "Body text" } }),
       makeWidget({ id: "r", kind: "run_button", props: { label: "Go" } }),
     ];
-    resetStore({ presentationDoc: docWith(widgets, { layout: "form" }) });
+    resetStore({ presentationDoc: docWith(widgets) });
     render(<PresentationCanvas />);
     expect(document.querySelector('[data-layout="form"]')).toBeTruthy();
     expect(document.querySelector('[data-widget="heading"]')).toBeTruthy();
     expect(document.querySelector('[data-widget="paragraph"]')).toBeTruthy();
     expect(document.querySelector('[data-widget="run_button"]')).toBeTruthy();
-  });
-
-  it("two_column layout splits left/right column widgets", () => {
-    const widgets = [
-      makeWidget({ id: "h", kind: "heading", column: "", props: { text: "H" } }),
-      makeWidget({ id: "l", kind: "input_json", column: "left", props: { label: "In" } }),
-      makeWidget({ id: "r", kind: "output_json", column: "right", props: { label: "Out" } }),
-      makeWidget({ id: "b", kind: "run_button", column: "", props: { label: "Run" } }),
-    ];
-    resetStore({ presentationDoc: docWith(widgets, { layout: "two_column" }) });
-    render(<PresentationCanvas />);
-    const leftCol = document.querySelector('[data-column="left"]');
-    const rightCol = document.querySelector('[data-column="right"]');
-    expect(leftCol?.querySelector('[data-widget="input_json"]')).toBeTruthy();
-    expect(rightCol?.querySelector('[data-widget="output_json"]')).toBeTruthy();
-    // Heading spans top, run button spans bottom.
-    expect(document.querySelector('[data-band="top"]')?.textContent).toContain("H");
-    expect(document.querySelector('[data-band="bottom"]')?.textContent).toContain("Run");
-  });
-
-  it("free layout positions widgets absolutely from x/y", () => {
-    const widgets = [
-      makeWidget({ id: "h", x: 100, y: 50, props: { text: "Hello" } }),
-    ];
-    resetStore({ presentationDoc: docWith(widgets, { layout: "free" }) });
-    render(<PresentationCanvas />);
-    const wrapper = document.querySelector('[data-widget-id="h"]') as HTMLElement;
-    expect(wrapper.style.left).toBe("100px");
-    expect(wrapper.style.top).toBe("50px");
   });
 });
 
@@ -225,14 +183,6 @@ describe("presentation: PresentationToolbar", () => {
     fireEvent.click(screen.getByText("Edit circuit"));
     expect(useCircuitStore.getState().mode).toBe("edit");
   });
-
-  it("layout selector updates the presentation doc layout", () => {
-    resetStore();
-    render(<PresentationToolbar />);
-    const select = screen.getByRole("combobox") as HTMLSelectElement;
-    fireEvent.change(select, { target: { value: "two_column" } });
-    expect(useCircuitStore.getState().presentationDoc.layout).toBe("two_column");
-  });
 });
 
 // ── URL helpers ────────────────────────────────────────────────────
@@ -243,20 +193,18 @@ describe("presentation: URL helpers", () => {
     expect(decodeBase64(encodeBase64(s))).toBe(s);
   });
 
-  it("readUrlState parses mode + layout + template + circuit", () => {
+  it("readUrlState parses mode + template + circuit", () => {
     const json = '{"foo":1}';
     const c = encodeBase64(json);
-    const state = readUrlState(`?mode=presentation&layout=two_column&template=lexicon_mapper&c=${c}`);
+    const state = readUrlState(`?mode=presentation&template=lexicon_mapper&c=${c}`);
     expect(state.mode).toBe("presentation");
-    expect(state.layout).toBe("two_column");
     expect(state.template).toBe("lexicon_mapper");
     expect(state.circuitJson).toBe(json);
   });
 
-  it("buildShareUrl includes mode + layout", () => {
-    const url = buildShareUrl(0, "two_column");
+  it("buildShareUrl includes mode", () => {
+    const url = buildShareUrl(0);
     expect(url).toContain("mode=presentation");
-    expect(url).toContain("layout=two_column");
   });
 });
 

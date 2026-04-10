@@ -7,7 +7,7 @@
  * The edit-mode circuit canvas only shows the real lens transforms.
  */
 
-import { test, expect, waitForDemoLoaded } from "./fixtures";
+import { test, expect } from "./fixtures";
 import { test as base } from "@playwright/test";
 
 // ── Default landing (no URL params) ─────────────────────────────────
@@ -95,35 +95,6 @@ test.describe("empty presentation mode", () => {
     ).toBeVisible();
     await page.getByRole("button", { name: /Edit circuit/ }).click();
     await expect(page.locator('[data-mode="edit"]')).toBeVisible();
-  });
-});
-
-// ── Layout switching ────────────────────────────────────────────────
-
-base.describe("layout switching", () => {
-  base("layout selector toggles between form / two_column / free", async ({
-    page,
-  }) => {
-    await page.goto("/");
-    await expect(page.locator('[data-mode="presentation"]')).toBeVisible({
-      timeout: 15_000,
-    });
-    // Default layout is form.
-    await expect(page.locator('[data-layout="form"]')).toBeVisible();
-
-    // Switch to two_column.
-    await page
-      .locator('[data-testid="presentation-toolbar"] select')
-      .selectOption("two_column");
-    await expect(page.locator('[data-layout="two_column"]')).toBeVisible();
-    // URL should contain ?layout=two_column.
-    await expect.poll(() => page.url()).toMatch(/layout=two_column/);
-
-    // Switch to free.
-    await page
-      .locator('[data-testid="presentation-toolbar"] select')
-      .selectOption("free");
-    await expect(page.locator('[data-layout="free"]')).toBeVisible();
   });
 });
 
@@ -233,18 +204,12 @@ base.describe("edit mode via Cmd+E after template", () => {
 // ── Share URL ──────────────────────────────────────────────────────
 
 base.describe("share URL", () => {
-  base("URL reflects mode + layout params", async ({ page }) => {
+  base("URL reflects mode param", async ({ page }) => {
     await page.goto("/");
     await expect(page.locator('[data-mode="presentation"]')).toBeVisible({
       timeout: 15_000,
     });
     await expect.poll(() => page.url()).toMatch(/mode=presentation/);
-
-    // Change layout.
-    await page
-      .locator('[data-testid="presentation-toolbar"] select')
-      .selectOption("two_column");
-    await expect.poll(() => page.url()).toMatch(/layout=two_column/);
   });
 });
 

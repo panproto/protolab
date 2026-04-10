@@ -108,17 +108,11 @@ function buildPresentationDoc(): PresentationDoc {
     {
       id: "w_heading",
       kind: "heading",
-      column: "",
-      x: 40,
-      y: 30,
       props: { text: "Lexicon Mapper", level: "1" },
     },
     {
       id: "w_paragraph",
       kind: "paragraph",
-      column: "",
-      x: 40,
-      y: 70,
       props: {
         text: "Resolve a schema, enter input data, and click Run. Press Cmd+E to edit the circuit.",
       },
@@ -126,48 +120,32 @@ function buildPresentationDoc(): PresentationDoc {
     {
       id: "w_lexicon",
       kind: "lexicon_import",
-      column: "",
-      x: 40,
-      y: 120,
       props: { label: "Source schema", default_nsid: DEFAULT_NSID },
     },
     {
       id: "w_input",
       kind: "input_json",
-      column: "",
-      x: 40,
-      y: 300,
       props: { label: "Input (atproto post)" },
     },
     {
       id: "w_lens_chain",
       kind: "lens_chain",
-      column: "",
-      x: 40,
-      y: 600,
       props: {},
     },
     {
       id: "w_output",
       kind: "output_json",
-      column: "",
-      x: 40,
-      y: 800,
       props: { label: "Output (timeline event)" },
     },
     {
       id: "w_run",
       kind: "run_button",
-      column: "",
-      x: 40,
-      y: 1100,
       props: { label: "Run mapping" },
     },
   ];
 
   return {
     title: "Lexicon Mapper",
-    layout: "form",
     widgets,
   };
 }

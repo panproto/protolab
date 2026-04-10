@@ -65,9 +65,6 @@ function makeWidget(patch: Partial<PresentationWidget> = {}): PresentationWidget
   return {
     id: "w1",
     kind: "heading",
-    column: "",
-    x: 0,
-    y: 0,
     props: {},
     ...patch,
   };
