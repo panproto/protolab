@@ -120,7 +120,7 @@ function buildPresentationDoc(): PresentationDoc {
       x: 40,
       y: 70,
       props: {
-        text: "This lens is bidirectional: press Cmd+E to reveal the full circuit and try editing the output.",
+        text: "Resolve a schema, enter input data, and click Run. Press Cmd+E to edit the circuit.",
       },
     },
     {
