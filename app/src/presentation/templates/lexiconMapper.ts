@@ -180,70 +180,70 @@ function buildPresentationDoc(): PresentationDoc {
  *    the circuit's source schema.
  * 6. Seed the input with the canonical post record.
  */
-export async function loadLexiconMapperTemplate(): Promise<void> {
-  // (1) Fresh circuit.
-  const oldHandle = useCircuitStore.getState().circuitHandle;
-  const newHandle = wasm.createEmptyCircuit();
-  if (oldHandle !== null && oldHandle !== newHandle) {
-    try {
-      wasm.free_handle(oldHandle);
-    } catch {
-      // Ignore: the slab may already have freed it.
-    }
-  }
-  useCircuitStore.setState({
-    circuitHandle: newHandle,
-    nodes: [],
-    edges: [],
-    sourceSchemaHandle: null,
-    importedSchemas: [],
-    outputDataJson: "",
-    wireDataMap: {},
-    evaluationError: null,
-  });
-
-  // (2) Presentation layer — set this FIRST so the UI enters
-  // presentation mode immediately rather than blocking on the network
-  // fetch in step (5). This is what the e2e tests wait on.
+export function loadLexiconMapperTemplate(): void {
+  // ── Step 1: presentation layer + input seed ──────────────────────
+  // Set these FIRST, unconditionally, so the UI has widgets to show
+  // even if the WASM circuit operations below throw.
   useCircuitStore.getState().setPresentationDoc(buildPresentationDoc());
-
-  // (6) Seed the input with the canonical post record eagerly (before
-  // the async resolve in step 5) so the UI is populated right away.
   useCircuitStore.getState().setInputData(JSON.stringify(CANONICAL_POST, null, 2));
 
-  // (3) Add the real lens chain.
-  const beforeIds = new Set(useCircuitStore.getState().nodes.map((n) => n.id));
-  LENS_CHAIN.forEach((spec, i) => {
-    useCircuitStore.getState().addComponent(spec.type, 100 + i * 260, 120);
-  });
-  const after = useCircuitStore.getState().nodes;
-  const lens = after.filter((n) => !beforeIds.has(n.id));
-
-  // (4) Apply params.
-  lens.forEach((node, i) => {
-    const spec = LENS_CHAIN[i];
-    if (!spec) return;
-    for (const [k, v] of spec.params) {
-      useCircuitStore.getState().updateParam(node.id, k, v);
+  // ── Step 2: circuit operations (may fail if WASM isn't ready) ────
+  try {
+    const oldHandle = useCircuitStore.getState().circuitHandle;
+    const newHandle = wasm.createEmptyCircuit();
+    if (oldHandle !== null && oldHandle !== newHandle) {
+      try {
+        wasm.free_handle(oldHandle);
+      } catch {
+        // Slab may already have freed it.
+      }
     }
-  });
+    useCircuitStore.setState({
+      circuitHandle: newHandle,
+      nodes: [],
+      edges: [],
+      sourceSchemaHandle: null,
+      importedSchemas: [],
+      outputDataJson: "",
+      wireDataMap: {},
+      evaluationError: null,
+    });
 
-  // Wire the chain: out → in.
-  for (let i = 0; i < lens.length - 1; i++) {
-    const src = `${lens[i].id}.out`;
-    const tgt = `${lens[i + 1].id}.in`;
-    try {
-      useCircuitStore.getState().connectPorts(src, tgt);
-    } catch (err) {
-      console.warn(`lexiconMapper: failed to wire ${src} → ${tgt}:`, err);
+    // Add the real lens chain.
+    const beforeIds = new Set(useCircuitStore.getState().nodes.map((n) => n.id));
+    LENS_CHAIN.forEach((spec, i) => {
+      useCircuitStore.getState().addComponent(spec.type, 100 + i * 260, 120);
+    });
+    const after = useCircuitStore.getState().nodes;
+    const lens = after.filter((n) => !beforeIds.has(n.id));
+
+    // Apply params.
+    lens.forEach((node, i) => {
+      const spec = LENS_CHAIN[i];
+      if (!spec) return;
+      for (const [k, v] of spec.params) {
+        useCircuitStore.getState().updateParam(node.id, k, v);
+      }
+    });
+
+    // Wire the chain: out → in.
+    for (let i = 0; i < lens.length - 1; i++) {
+      const src = `${lens[i].id}.out`;
+      const tgt = `${lens[i + 1].id}.in`;
+      try {
+        useCircuitStore.getState().connectPorts(src, tgt);
+      } catch (err) {
+        console.warn(`lexiconMapper: failed to wire ${src} → ${tgt}:`, err);
+      }
     }
+  } catch (err) {
+    console.error("lexiconMapper: circuit setup failed:", err);
+    useCircuitStore.setState({
+      evaluationError: `Template circuit setup failed: ${err}`,
+    });
   }
 
-  // (5) Auto-resolve the default lexicon and assign as source schema.
-  // This is fire-and-forget: we don't await it so the template returns
-  // immediately and the UI enters presentation mode without blocking on
-  // a network fetch. If the fetch succeeds, the schema is installed in
-  // the background; if it fails, the user can hit Resolve manually.
+  // ── Step 3: auto-resolve lexicon (fire-and-forget) ───────────────
   resolveDefaultLexicon();
 }
 

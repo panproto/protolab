@@ -286,11 +286,11 @@ describe("loadLexiconMapperTemplate: lexicon auto-resolve", () => {
     expect(importedSchemas[0].name).toContain("app.bsky.feed.post");
   });
 
-  it("proceeds gracefully when the fetch fails (no throw)", async () => {
+  it("proceeds gracefully when the fetch fails (no throw)", () => {
     vi.unstubAllGlobals();
     stubFetchFail();
-    // Should resolve without throwing even if fetch errors.
-    await expect(loadLexiconMapperTemplate()).resolves.toBeUndefined();
+    // Should not throw even if the background fetch errors.
+    expect(() => loadLexiconMapperTemplate()).not.toThrow();
   });
 
   it("still seeds the presentation doc when lexicon fetch fails", async () => {

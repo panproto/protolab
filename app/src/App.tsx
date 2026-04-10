@@ -235,18 +235,12 @@ export default function App() {
         return;
       }
 
-      if (url.template === "lexicon_mapper") {
-        loadLexiconMapperTemplate();
-        setMode("presentation");
-        return;
-      }
-
-      // Default landing: no URL params → auto-load the lexicon mapper
-      // template in presentation mode. `?mode=edit` keeps the raw
-      // editor without loading the template, so authors starting from
-      // scratch don't get template nodes injected into their circuit.
-      if (!hasParams) {
-        loadLexiconMapperTemplate();
+      if (url.template === "lexicon_mapper" || !hasParams) {
+        try {
+          loadLexiconMapperTemplate();
+        } catch (err) {
+          console.error("template load failed:", err);
+        }
         setMode("presentation");
       }
     })();
