@@ -235,7 +235,13 @@ export default function App() {
         return;
       }
 
-      if (url.template === "lexicon_mapper" || !hasParams) {
+      // Load the template unless the user explicitly requested the raw
+      // editor via `?mode=edit`. This covers:
+      //   - Fresh visit with no params  → template + presentation
+      //   - `?template=lexicon_mapper`   → template + presentation
+      //   - `?mode=presentation`         → template + presentation (e.g. refresh)
+      //   - `?mode=edit`                 → raw demo editor, no template
+      if (url.mode !== "edit") {
         try {
           loadLexiconMapperTemplate();
         } catch (err) {
