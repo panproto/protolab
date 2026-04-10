@@ -117,31 +117,96 @@ export function ComponentNode({ data, selected }: NodeProps) {
           border: `2px solid ${selected ? "#fff" : borderColor}`,
           borderRadius: 8,
           background: bgColor,
-          padding: "12px 16px",
-          minWidth: 180,
+          padding: "10px 14px",
+          width: 220,
+          maxWidth: 220,
+          boxSizing: "border-box",
           color: "#e0e0e0",
           fontSize: 12,
           fontFamily: "inherit",
           boxShadow: selected ? `0 0 12px ${borderColor}44` : undefined,
+          overflow: "hidden",
         }}
       >
         {/* Header + optic badge on same line */}
-        <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ width: 8, height: 8, borderRadius: "50%", background: borderColor, display: "inline-block", flexShrink: 0 }} />
-          {d.label}
-          <span style={{ fontSize: 10, color: borderColor, textTransform: "uppercase", letterSpacing: "0.05em", marginLeft: "auto", fontWeight: 500 }}>
+        <div
+          style={{
+            fontWeight: 600,
+            fontSize: 14,
+            marginBottom: 8,
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            minWidth: 0,
+          }}
+        >
+          <span
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: "50%",
+              background: borderColor,
+              display: "inline-block",
+              flexShrink: 0,
+            }}
+          />
+          <span
+            title={d.label}
+            style={{
+              flex: 1,
+              minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {d.label}
+          </span>
+          <span
+            style={{
+              fontSize: 10,
+              color: borderColor,
+              textTransform: "uppercase",
+              letterSpacing: "0.05em",
+              fontWeight: 500,
+              flexShrink: 0,
+            }}
+          >
             {d.opticKind}
           </span>
         </div>
 
-        {/* Params */}
+        {/* Params — each row truncates to a single line with ellipsis. Long
+            values (e.g. presentation:paragraph `text` blobs) are still
+            visible via the hover title. */}
         {d.params.length > 0 && (
-          <div style={{ fontSize: 11, color: "#999", borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: 6, marginTop: 4, lineHeight: 1.6 }}>
-            {d.params.map((p) => (
-              <div key={p.key}>
-                {p.key}: <span style={{ color: "#ccc" }}>{p.value || "—"}</span>
-              </div>
-            ))}
+          <div
+            style={{
+              fontSize: 11,
+              color: "#999",
+              borderTop: "1px solid rgba(255,255,255,0.1)",
+              paddingTop: 6,
+              marginTop: 4,
+              lineHeight: 1.6,
+            }}
+          >
+            {d.params.map((p) => {
+              const display = p.value || "—";
+              return (
+                <div
+                  key={p.key}
+                  title={`${p.key}: ${p.value}`}
+                  style={{
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  <span style={{ color: "#888" }}>{p.key}:</span>{" "}
+                  <span style={{ color: "#ccc" }}>{display}</span>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

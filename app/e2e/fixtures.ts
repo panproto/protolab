@@ -30,7 +30,11 @@ export async function waitForDemoLoaded(page: Page) {
 
 export const test = base.extend<{ ready: Page }>({
   ready: async ({ page }, use) => {
-    await page.goto("/");
+    // The app's default landing is presentation mode with the Lexicon
+    // Mapper template. Existing edit-mode tests expect the raw demo
+    // editor, so the `ready` fixture explicitly requests edit mode
+    // with no template injection via `?mode=edit`.
+    await page.goto("/?mode=edit");
     await waitForDemoLoaded(page);
     await use(page);
   },

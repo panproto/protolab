@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-04-10
+
+### Presentation mode (Max/MSP-inspired)
+
+- **Cmd+E toggles** between edit mode (full circuit editor) and
+  presentation mode (curated front panel). Presentation widgets —
+  headings, paragraphs, JSON I/O, run button, lexicon importer — live
+  in a separate UI layer (`presentationDoc`), NOT as circuit vertices.
+  Edit mode shows only the real lens chain.
+- **Three layouts**: form (vertical stack, default), two_column
+  (left/right with top/bottom spanning bands), and free (absolute
+  x/y positioning).
+- **URL-driven**: `?mode=presentation`, `?layout=two_column`,
+  `?template=lexicon_mapper`, `?c=<base64(circuit)>` all work as
+  share-friendly entry points.
+
+### Lexicon Mapper template
+
+- The default landing loads a **Lexicon Mapper** in presentation mode:
+  a 4-step lens that renames `text→body`, `createdAt→timestamp`,
+  computes `charCount = len(body)`, and adds `source = "bluesky"`.
+- **Auto-resolves `app.bsky.feed.post`** from lexicon.garden's XRPC
+  endpoint (`Access-Control-Allow-Origin: *`) and seeds the input
+  with a canonical example record. Click Run and the transformed
+  output appears immediately.
+- **NSID autocomplete** against lexicon.garden's
+  `/api/autocomplete-nsid` with debounced typeahead and keyboard
+  navigation (works in dev via Vite proxy; production needs a
+  CORS-aware proxy once lexicon.garden adds CORS to `/api/*`).
+- Bundled example records for 6 common NSIDs (posts, follows,
+  profiles, likes, reposts, blocks) auto-seed the input widget.
+
+### Edit mode improvements
+
+- **Fixed-width component nodes** (220px) with ellipsis truncation on
+  long params, preventing horizontal overflow and node overlap.
+- `assignSourceSchema` now refreshes the circuit graph so optic
+  badges update immediately when a new source schema is assigned.
+
+### Test coverage
+
+- 510 total tests: 187 Rust, 296 vitest, 27 Playwright e2e.
+- New vitest suites: all 7 presentation widgets, WidgetRegistry,
+  lexiconGarden API client, lexiconMapper template loader,
+  expressionBuiltins catalog.
+- Rewritten Playwright e2e: default landing, Cmd+E toggle, layout
+  switching, lexicon resolve, Run → lens output, edit mode shows
+  only 4 real lens nodes, forward/backward eval, drag/drop/delete
+  components, JSON export, per-component Bang.
+
 ## [0.1.0] — 2026-04-08
 
 Initial public release of protolab.

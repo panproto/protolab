@@ -270,6 +270,13 @@ export const importSchema = vi.fn(
   }),
 );
 
+export const parseAtprotoLexicon = vi.fn(
+  (_jsonSource: string): SchemaImportResult => ({
+    handle: 7,
+    summary: { protocol: "atproto", vertex_count: 5, edge_count: 4 },
+  }),
+);
+
 export const importTheory = vi.fn(
   (_jsonSource: string): TheoryImportResult => ({
     handle: 1,
@@ -419,6 +426,10 @@ export function resetMockBridge(): void {
   importSchema.mockImplementation(() => ({
     handle: 1,
     summary: { protocol: "mock-protocol", vertex_count: 2, edge_count: 1 },
+  }));
+  parseAtprotoLexicon.mockImplementation(() => ({
+    handle: 7,
+    summary: { protocol: "atproto", vertex_count: 5, edge_count: 4 },
   }));
   importTheory.mockImplementation(() => ({
     handle: 1,

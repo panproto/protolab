@@ -177,6 +177,68 @@ export interface ProtocolInfo {
   hasPolicies: boolean;
 }
 
+// ── Presentation mode types ─────────────────────────────────────────
+
+/**
+ * UI mode: "edit" shows the full circuit editor (palette + canvas +
+ * inspector + data panel), "presentation" shows a curated "front panel"
+ * assembled from a separate presentation layer. Inspired by Max/MSP's
+ * presentation vs. edit mode split.
+ */
+export type ViewMode = "edit" | "presentation";
+
+export type PresentationLayout = "free" | "form" | "two_column";
+
+/**
+ * Kinds of widgets that can appear in the presentation layer. Each kind
+ * has a matching renderer in `presentation/widgets/`.
+ */
+export type WidgetKind =
+  | "heading"
+  | "paragraph"
+  | "panel"
+  | "input_json"
+  | "output_json"
+  | "run_button"
+  | "lexicon_import";
+
+/**
+ * A single presentation widget. Widgets live in the presentation layer,
+ * NOT in the circuit schema — they're UI chrome, not lens components.
+ * `props` carries widget-specific config (heading text, run button
+ * label, lexicon NSID, etc.); different widget kinds interpret different
+ * keys.
+ */
+export interface PresentationWidget {
+  id: string;
+  kind: WidgetKind;
+  /** Column for two_column layout: "" spans, "left"/"right" go into
+   *  the respective column. */
+  column: "" | "left" | "right";
+  /** Absolute coordinates for `free` layout. Ignored by `form` and
+   *  treated as z-order hints by `two_column`. */
+  x: number;
+  y: number;
+  /** Arbitrary string-keyed config. Each widget reads its own keys. */
+  props: Record<string, string>;
+}
+
+/**
+ * The presentation layer: a sibling of the circuit schema that controls
+ * how the circuit is presented to end-users in presentation mode. Stored
+ * in Zustand state and (for sharing) base64-encoded alongside the
+ * circuit in `?p=` URL params.
+ */
+export interface PresentationDoc {
+  title: string;
+  layout: PresentationLayout;
+  widgets: PresentationWidget[];
+}
+
+export function emptyPresentationDoc(): PresentationDoc {
+  return { title: "protolab", layout: "free", widgets: [] };
+}
+
 // ── Store ───────────────────────────────────────────────────────────
 
 interface CircuitState {
@@ -190,6 +252,10 @@ interface CircuitState {
   importedSchemas: SchemaInfo[];
   importedTheories: TheoryInfo[];
   importedProtocols: ProtocolInfo[];
+
+  // Presentation mode
+  mode: ViewMode;
+  presentationDoc: PresentationDoc;
 
   // Evaluation state
   sourceSchemaHandle: number | null;
@@ -213,6 +279,15 @@ interface CircuitState {
   connectPorts(srcPort: string, tgtPort: string): void;
   removeWire(id: string): void;
   updateParam(componentId: string, key: string, value: string): void;
+
+  // Presentation mode
+  setMode(mode: ViewMode): void;
+  setPresentationDoc(doc: PresentationDoc): void;
+  setPresentationLayout(layout: PresentationLayout): void;
+  setPresentationTitle(title: string): void;
+  addPresentationWidget(widget: PresentationWidget): void;
+  updatePresentationWidget(id: string, patch: Partial<PresentationWidget>): void;
+  removePresentationWidget(id: string): void;
 
   // Import
   importLensDocument(json: string): void;
@@ -274,6 +349,23 @@ function graphToReactFlow(graph: CircuitGraph): { nodes: Node[]; edges: Edge[] }
   return { nodes, edges };
 }
 
+function initialModeFromUrl(): ViewMode {
+  if (typeof window === "undefined") return "edit";
+  const p = new URLSearchParams(window.location.search);
+  return p.get("mode") === "presentation" ? "presentation" : "edit";
+}
+
+function initialLayoutFromUrl(): PresentationLayout {
+  if (typeof window === "undefined") return "free";
+  const p = new URLSearchParams(window.location.search);
+  const v = p.get("layout");
+  return v === "form" || v === "two_column" || v === "free" ? v : "free";
+}
+
+function initialPresentationDoc(): PresentationDoc {
+  return { ...emptyPresentationDoc(), layout: initialLayoutFromUrl() };
+}
+
 export const useCircuitStore = create<CircuitState>((set, get) => ({
   nodes: [],
   edges: [],
@@ -285,6 +377,10 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
   importedSchemas: [],
   importedTheories: [],
   importedProtocols: [],
+
+  // Presentation mode
+  mode: initialModeFromUrl(),
+  presentationDoc: initialPresentationDoc(),
 
   // Evaluation state
   sourceSchemaHandle: null,
@@ -388,6 +484,69 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
     if (!handle && handle !== 0) return;
     const graph = wasm.updateParam(handle, componentId, key, value);
     get().applyGraph(graph);
+  },
+
+  // ── Presentation mode actions ────────────────────────────────────
+
+  setMode(mode) {
+    set({ mode });
+    if (typeof window !== "undefined") {
+      const p = new URLSearchParams(window.location.search);
+      if (mode === "presentation") p.set("mode", "presentation");
+      else p.delete("mode");
+      const q = p.toString();
+      const url = q ? `${window.location.pathname}?${q}` : window.location.pathname;
+      window.history.replaceState(null, "", url);
+    }
+  },
+
+  setPresentationDoc(doc) {
+    set({ presentationDoc: doc });
+  },
+
+  setPresentationLayout(layout) {
+    set((s) => ({ presentationDoc: { ...s.presentationDoc, layout } }));
+    if (typeof window !== "undefined") {
+      const p = new URLSearchParams(window.location.search);
+      if (layout === "free") p.delete("layout");
+      else p.set("layout", layout);
+      const q = p.toString();
+      const url = q ? `${window.location.pathname}?${q}` : window.location.pathname;
+      window.history.replaceState(null, "", url);
+    }
+  },
+
+  setPresentationTitle(title) {
+    set((s) => ({ presentationDoc: { ...s.presentationDoc, title } }));
+  },
+
+  addPresentationWidget(widget) {
+    set((s) => ({
+      presentationDoc: {
+        ...s.presentationDoc,
+        widgets: [...s.presentationDoc.widgets, widget],
+      },
+    }));
+  },
+
+  updatePresentationWidget(id, patch) {
+    set((s) => ({
+      presentationDoc: {
+        ...s.presentationDoc,
+        widgets: s.presentationDoc.widgets.map((w) =>
+          w.id === id ? { ...w, ...patch, props: { ...w.props, ...(patch.props ?? {}) } } : w,
+        ),
+      },
+    }));
+  },
+
+  removePresentationWidget(id) {
+    set((s) => ({
+      presentationDoc: {
+        ...s.presentationDoc,
+        widgets: s.presentationDoc.widgets.filter((w) => w.id !== id),
+      },
+    }));
   },
 
   importLensDocument(json) {
@@ -539,7 +698,14 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
     if (handle === null) return;
     try {
       wasm.setSourceSchema(handle, schemaHandle);
+      // Refresh the graph so the per-component optic classifications
+      // (which depend on the source schema's root vertex) get picked
+      // up. Without this, every component shows as "lens" because
+      // `compute_per_component_optics` falls back when no source is
+      // assigned.
+      const graph = wasm.getGraph(handle);
       set({ sourceSchemaHandle: schemaHandle, evaluationError: null });
+      get().applyGraph(graph);
     } catch (err) {
       set({ evaluationError: String(err) });
     }

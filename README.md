@@ -102,6 +102,72 @@ npm run dev                    # http://localhost:3000
 The dev server hot-reloads the React layer. Rust changes require
 re-running `./scripts/build-wasm.sh`.
 
+## Presentation mode
+
+protolab borrows Max/MSP's **presentation vs. edit mode** split. The
+circuit is the source of truth, but authors can curate a subset of
+components into a clean "front panel" that end-users see — hiding the
+palette, inspector, and wire tangle behind a simple form.
+
+The default landing — just `https://panproto.dev/protolab/` with no
+query params — loads the Lexicon Mapper template in presentation mode:
+a two-column front panel with a lexicon NSID resolver, input/output
+JSON, and a Run button. Type `app.bsky.feed.post`, hit Resolve, click
+Run. The full editor is one **Cmd+E** away (Ctrl+E on Linux/Windows).
+
+URL entry points:
+
+```
+https://panproto.dev/protolab/                           # default: lexicon mapper, presentation
+https://panproto.dev/protolab/?mode=edit                 # raw editor, no template
+https://panproto.dev/protolab/?mode=presentation         # presentation mode, no template
+https://panproto.dev/protolab/?template=lexicon_mapper   # explicit template load
+https://panproto.dev/protolab/?c=<base64(circuit)>       # shared circuit; respects ?mode=
+```
+
+In **edit mode**, each component's Inspector has a **Presentation**
+section where you check "Include in presentation", pick a widget
+renderer, and set (x, y, column) for the three supported layouts:
+
+- **free** — absolute positioning from `presentation:x/y`
+- **form** — vertical stack (ignores coordinates)
+- **two_column** — left/right split via `presentation:column`
+
+Presentation metadata lives on the circuit schema as constraints
+(`presentation:include`, `presentation:widget`, `presentation:x/y`,
+`presentation:column`), so it round-trips through export and import
+just like every other schema-level property.
+
+### Widget kinds
+
+- **heading** / **paragraph** / **panel** — static content from the
+  `presentation_heading` / `_paragraph` / `_panel` components
+- **input_json** — JSON textarea bound to `inputDataJson`
+- **output_json** — read-only view of `outputDataJson` (and evaluation
+  errors)
+- **run_button** — triggers forward evaluation
+- **lexicon_import** — NSID input that resolves an atproto lexicon via
+  lexicon.garden's XRPC endpoint
+  (`com.atproto.lexicon.resolveLexicon?nsid=…`), unwraps the `schema`
+  field, feeds it through
+  `panproto_protocols::web_document::atproto::parse_lexicon`, and
+  installs the result as the circuit's source schema. The endpoint is
+  served with permissive CORS, so the browser fetches directly — no
+  proxy. For known NSIDs (`app.bsky.feed.post`, `app.bsky.graph.follow`,
+  etc.), the widget also seeds the input JSON with a canonical example
+  record so the Run button is immediately meaningful.
+
+Unknown widget keys (for example, an arbitrary `rename_field` marked
+`presentation:include=true`) fall back to a compact node box so the
+author can still see and fix the metadata from edit mode.
+
+### Lexicon Mapper template
+
+Load `?template=lexicon_mapper` for a pre-built presentation-mode
+circuit tailored to the "paste a lexicon → see a mapping" flow. It
+ships with a heading, a lexicon-import widget, an input JSON editor, a
+run button, and an output panel laid out in two columns.
+
 ## Testing
 
 protolab has a layered test suite. Every layer is runnable in isolation.
@@ -112,17 +178,15 @@ protolab has a layered test suite. Every layer is runnable in isolation.
 # crates/protolab-wasm/src/api.rs::tests.
 cargo test --workspace
 
-# Frontend unit + component: 172 tests via vitest + React Testing Library
+# Frontend unit + component: 195 tests via vitest + React Testing Library
 # + jsdom, with the WASM bridge swapped for a mock via vitest's alias.
 cd app && npm test
 
-# End-to-end: 8 tests via Playwright + real Chromium + real WASM, running
-# against the vite dev server. Proves the forward and backward evaluation
-# paths end-to-end.
+# End-to-end: 14 tests via Playwright + real Chromium + real WASM,
+# running against the vite dev server. Proves the forward/backward
+# evaluation paths and the presentation-mode flow end-to-end.
 cd app && npm run test:e2e
 ```
-
-Total: **420 tests, 0 ignored, 0 skipped, 0 failing**.
 
 ## Project structure
 

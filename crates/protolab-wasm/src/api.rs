@@ -545,6 +545,43 @@ fn import_schema_json_inner(json_source: &str) -> Result<Vec<u8>, WasmError> {
     rmp_serde::to_vec_named(&result).map_err(|e| WasmError::SerializationFailed(e.to_string()))
 }
 
+/// Parse an atproto lexicon JSON string into a `Schema` and register it
+/// in the slab as an importable schema.
+///
+/// This wraps `panproto_protocols::web_document::atproto::parse_lexicon`,
+/// which converts a raw lexicon document (e.g. as served from
+/// lexicon.garden) into protolab's schema representation. Returns the
+/// same `{handle, summary}` shape as `import_schema_json` so the
+/// frontend can reuse its import-result wiring.
+#[wasm_bindgen]
+pub fn parse_atproto_lexicon(json_source: &str) -> Result<Vec<u8>, JsError> {
+    parse_atproto_lexicon_inner(json_source).map_err(Into::into)
+}
+
+fn parse_atproto_lexicon_inner(json_source: &str) -> Result<Vec<u8>, WasmError> {
+    use panproto_protocols::web_document::atproto;
+
+    let value: serde_json::Value = serde_json::from_str(json_source)
+        .map_err(|e| WasmError::DeserializationFailed(format!("lexicon JSON parse: {e}")))?;
+    let schema = atproto::parse_lexicon(&value)
+        .map_err(|e| WasmError::DeserializationFailed(format!("lexicon: {e}")))?;
+
+    let summary = SchemaSummary {
+        protocol: schema.protocol.clone(),
+        vertex_count: schema.vertices.len(),
+        edge_count: schema.edges.len(),
+    };
+    let handle = slab::alloc(Resource::Schema(schema));
+
+    #[derive(Serialize)]
+    struct ImportResult {
+        handle: u32,
+        summary: SchemaSummary,
+    }
+    rmp_serde::to_vec_named(&ImportResult { handle, summary })
+        .map_err(|e| WasmError::SerializationFailed(e.to_string()))
+}
+
 /// Import a theory definition from JSON. Returns summary msgpack.
 #[wasm_bindgen]
 pub fn import_theory_json(json_source: &str) -> Result<Vec<u8>, JsError> {

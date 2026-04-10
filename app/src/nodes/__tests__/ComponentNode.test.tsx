@@ -75,8 +75,11 @@ describe("ComponentNode", () => {
 
   it("selected prop applies selected styling", () => {
     const { container, rerender } = renderNode(makeProps({ selected: false }));
+    // The body div is identified by its fixed width clamp (220px).
+    // Originally this used `min-width`; the width property changed to
+    // `width` when we added ellipsis truncation.
     const getBody = () =>
-      container.querySelector('[style*="min-width"]') as HTMLElement;
+      container.querySelector('[style*="width: 220px"]') as HTMLElement;
     const unselectedBorder = getBody().style.borderColor;
     rerender(
       <ReactFlowProvider>

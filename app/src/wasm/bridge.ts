@@ -38,6 +38,7 @@ import init, {
   parse_expression,
   evaluate_expression,
   list_expr_builtins,
+  parse_atproto_lexicon as parse_atproto_lexicon_wasm,
 } from "./pkg/protolab_wasm.js";
 import { encode, decode } from "@msgpack/msgpack";
 
@@ -233,6 +234,17 @@ export function importLensDoc(jsonSource: string): number {
 
 export function importSchema(jsonSource: string): SchemaImportResult {
   const result = import_schema_json(jsonSource);
+  return decode(result) as SchemaImportResult;
+}
+
+/**
+ * Parse a raw atproto lexicon document (as JSON text) into a schema and
+ * register it in the WASM slab. Returns the same shape as `importSchema`,
+ * so the caller can treat the result as an imported schema and assign
+ * it as the source schema of a circuit.
+ */
+export function parseAtprotoLexicon(jsonSource: string): SchemaImportResult {
+  const result = parse_atproto_lexicon_wasm(jsonSource);
   return decode(result) as SchemaImportResult;
 }
 

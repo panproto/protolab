@@ -102,9 +102,14 @@ describe("Inspector / NodeInspector", () => {
     const node = makeNode();
     resetStore({ nodes: [node], selectedNodeId: node.id });
     render(<Inspector />);
-    const select = screen.getByRole("combobox") as HTMLSelectElement;
-    expect(select).toBeInTheDocument();
-    const opts = Array.from(select.options).map((o) => o.value);
+    // Several selects now render (coercion + presentation widget/column).
+    // Identify the coercion-class select by its options set.
+    const selects = screen.getAllByRole("combobox") as HTMLSelectElement[];
+    const coercionSelect = selects.find((s) =>
+      Array.from(s.options).some((o) => o.value === "retraction"),
+    );
+    expect(coercionSelect).toBeDefined();
+    const opts = Array.from(coercionSelect!.options).map((o) => o.value);
     expect(opts).toContain("iso");
     expect(opts).toContain("retraction");
     expect(opts).toContain("projection");
@@ -182,8 +187,13 @@ describe("Inspector / NodeInspector", () => {
     const node = makeNode();
     resetStore({ nodes: [node], selectedNodeId: node.id, updateParam: update });
     render(<Inspector />);
-    const select = screen.getByRole("combobox") as HTMLSelectElement;
-    fireEvent.change(select, { target: { value: "projection" } });
+    // The NodeInspector now shows several selects (coercion enum + the
+    // presentation Widget/Column pickers). Find the coercion-class one
+    // by its current value — the mock node has `coercion=iso`.
+    const selects = screen.getAllByRole("combobox") as HTMLSelectElement[];
+    const coercionSelect = selects.find((s) => s.value === "iso");
+    expect(coercionSelect).toBeDefined();
+    fireEvent.change(coercionSelect!, { target: { value: "projection" } });
     expect(update).toHaveBeenCalledWith("comp_1", "coercion", "projection");
   });
 
