@@ -125,7 +125,7 @@ function buildPresentationDoc(): PresentationDoc {
     {
       id: "w_input",
       kind: "input_json",
-      props: { label: "Input (atproto post)" },
+      props: { label: "Input" },
     },
     {
       id: "w_lens_chain",
@@ -135,7 +135,7 @@ function buildPresentationDoc(): PresentationDoc {
     {
       id: "w_output",
       kind: "output_json",
-      props: { label: "Output (timeline event)" },
+      props: { label: "Output" },
     },
     {
       id: "w_run",
