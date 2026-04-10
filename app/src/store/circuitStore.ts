@@ -695,15 +695,18 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
   autoGenerateLens() {
     const handle = get().circuitHandle;
     const src = get().sourceSchemaHandle;
-    // Target defaults to source when not explicitly set.
-    const tgt = get().targetSchemaHandle ?? src;
+    const tgt = get().targetSchemaHandle;
+    // Only auto-generate when both source AND target are explicitly set.
+    // When target is null, the user's manually built circuit is preserved.
     if (handle === null || src === null || tgt === null) return;
     try {
       const result = wasm.autoGenerateLens(handle, src, tgt);
       set({ evaluationError: null });
       get().applyGraph(result.graph);
     } catch (err) {
-      set({ evaluationError: `Auto-lens failed: ${err}` });
+      // Don't write to evaluationError; the user's existing circuit is
+      // still valid. Log for debugging and let the user resolve manually.
+      console.warn("Auto-lens generation failed:", err);
     }
   },
 
