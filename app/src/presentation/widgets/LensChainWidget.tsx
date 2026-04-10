@@ -46,6 +46,31 @@ function summarizeParams(
 }
 
 /**
+ * SVG connector drawn between adjacent step cards: a vertical line with
+ * a gradient from the previous step's optic color to the next, capped
+ * with a small downward-pointing arrowhead.
+ */
+function StepConnector({ color, nextColor }: { color: string; nextColor: string }) {
+  const id = `grad-${color}-${nextColor}`.replace(/[^a-zA-Z0-9-]/g, "");
+  return (
+    <div style={{ display: "flex", justifyContent: "center", padding: "0" }}>
+      <svg width="24" height="28" viewBox="0 0 24 28" fill="none">
+        <defs>
+          <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity="0.6" />
+            <stop offset="100%" stopColor={nextColor} stopOpacity="0.6" />
+          </linearGradient>
+        </defs>
+        {/* Vertical stem */}
+        <line x1="12" y1="0" x2="12" y2="20" stroke={`url(#${id})`} strokeWidth="2" />
+        {/* Arrowhead */}
+        <path d="M7 18 L12 26 L17 18" fill="none" stroke={nextColor} strokeWidth="1.5" strokeOpacity="0.7" strokeLinejoin="round" />
+      </svg>
+    </div>
+  );
+}
+
+/**
  * Lens chain widget: reads the circuit's real components from the store
  * and renders them as a compact visual pipeline. This stays in sync with
  * the actual circuit, so edits in edit mode (Cmd+E) are reflected here
@@ -82,23 +107,13 @@ export function LensChainWidget(_props: WidgetProps) {
         const label: string = d?.label ?? componentType;
         const color = OPTIC_COLORS[optic] ?? "#666";
         const summary = summarizeParams(componentType, params);
+        const prevOptic: string = i > 0 ? ((nodes[i - 1].data as any)?.opticKind ?? "lens") : optic;
+        const prevColor = OPTIC_COLORS[prevOptic] ?? "#666";
 
         return (
           <div key={node.id}>
-            {/* Arrow connector (skip before first) */}
-            {i > 0 && (
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "center",
-                  padding: "2px 0",
-                  color: "#555",
-                  fontSize: 11,
-                }}
-              >
-                ↓
-              </div>
-            )}
+            {/* Arrow connector between steps */}
+            {i > 0 && <StepConnector color={prevColor} nextColor={color} />}
             {/* Step card */}
             <div
               style={{
