@@ -23,7 +23,7 @@ base.describe("default landing", () => {
       timeout: 15_000,
     });
     // Title from the presentationDoc.
-    await expect(page.getByText("Lexicon Mapper")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Lexicon Mapper" })).toBeVisible();
     // Default layout is form.
     await expect(page.locator('[data-layout="form"]')).toBeVisible();
   });
@@ -257,7 +257,7 @@ base.describe("explicit ?template=lexicon_mapper", () => {
     await expect(page.locator('[data-mode="presentation"]')).toBeVisible({
       timeout: 15_000,
     });
-    await expect(page.getByText("Lexicon Mapper")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Lexicon Mapper" })).toBeVisible();
     await expect(page.locator('[data-widget="heading"]')).toBeVisible();
     await expect(page.locator('[data-widget="run_button"]')).toBeVisible();
   });

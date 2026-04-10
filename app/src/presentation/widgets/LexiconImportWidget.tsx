@@ -353,9 +353,22 @@ export function LexiconImportWidget({ widget }: WidgetProps) {
         )}
       </div>
       <div style={{ fontSize: 10, color: "#666" }}>
-        {autocompleteAvailable
-          ? "type to search · ↑/↓ to navigate · ↵ to select"
-          : "autocomplete unavailable (CORS); type a full NSID and click Resolve"}
+        {autocompleteAvailable ? (
+          "Type to search; use arrow keys to navigate, Enter to select."
+        ) : (
+          <>
+            Autocomplete is not available in this environment. Type a full NSID and click Resolve.
+            {" "}
+            <a
+              href="https://lexicon.garden/browse"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: "#61afef" }}
+            >
+              Browse available lexicons
+            </a>
+          </>
+        )}
       </div>
       <button
         onClick={() => setShowPaste((v) => !v)}

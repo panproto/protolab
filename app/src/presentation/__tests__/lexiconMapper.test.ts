@@ -266,17 +266,22 @@ describe("loadLexiconMapperTemplate: fresh circuit initialization", () => {
 describe("loadLexiconMapperTemplate: lexicon auto-resolve", () => {
   it("attempts to fetch the app.bsky.feed.post lexicon from lexicon.garden", async () => {
     const mockFetch = vi.mocked(globalThis.fetch);
-    await loadLexiconMapperTemplate();
-    expect(mockFetch).toHaveBeenCalledOnce();
+    loadLexiconMapperTemplate();
+    // The fetch is fire-and-forget; flush microtasks so it completes.
+    await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledOnce());
     const [url] = mockFetch.mock.calls[0] as [string];
     expect(url).toContain("app.bsky.feed.post");
     expect(url).toContain("lexicon.garden");
   });
 
   it("adds the resolved lexicon to importedSchemas on success", async () => {
-    await loadLexiconMapperTemplate();
+    loadLexiconMapperTemplate();
+    // Wait for the fire-and-forget resolve to complete.
+    await vi.waitFor(() => {
+      const { importedSchemas } = useCircuitStore.getState();
+      expect(importedSchemas.length).toBeGreaterThan(0);
+    });
     const { importedSchemas } = useCircuitStore.getState();
-    expect(importedSchemas.length).toBeGreaterThan(0);
     expect(importedSchemas[0].name).toContain("app.bsky.feed.post");
   });
 

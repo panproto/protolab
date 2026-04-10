@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] — 2026-04-10
+
+### Fixed
+
+- **E2e tests**: non-blocking lexicon auto-resolve so presentation mode
+  appears immediately without waiting on the network fetch. Scoped
+  output assertions to the output textarea to avoid matching the input.
+  Fixed strict-mode selectors for "Lexicon Mapper" (toolbar title vs.
+  heading widget).
+- **Paragraph widget text**: reformatted as a numbered list describing
+  each lens step. Removed all dashes used as punctuation in user-facing
+  text.
+- **CORS fallback UX**: when autocomplete is unavailable, the widget
+  links to lexicon.garden/browse so users can find NSIDs manually.
+
 ## [0.2.0] — 2026-04-10
 
 ### Presentation mode (Max/MSP-inspired)

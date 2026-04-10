@@ -22,13 +22,15 @@ test.describe("forward evaluation", () => {
     // The demo circuit: rename(name→displayName) → add(bio) → drop(legacyId)
     // Input: {"name":"Alice","legacyId":42}
     await page.getByRole("button", { name: /Run/ }).click();
-    await expect(
-      page.getByText(/"displayName"\s*:\s*"Alice"/).first(),
-    ).toBeVisible({ timeout: 10_000 });
-    // bio was added.
-    await expect(page.getByText(/"bio"/).first()).toBeVisible();
-    // legacyId was dropped.
-    await expect(page.getByText(/"legacyId"/).first()).not.toBeVisible();
+
+    // The output textarea is the second <textarea> on the page (after the
+    // input textarea in the DataPanel). Scope assertions to it so we
+    // don't accidentally match the INPUT which still shows legacyId.
+    const outputArea = page.locator("textarea").nth(1);
+    await expect(outputArea).toContainText("displayName", { timeout: 10_000 });
+    await expect(outputArea).toContainText("bio");
+    // legacyId was dropped — it should NOT appear in the output.
+    await expect(outputArea).not.toContainText("legacyId");
   });
 });
 

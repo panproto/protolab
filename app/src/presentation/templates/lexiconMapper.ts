@@ -118,7 +118,7 @@ function buildPresentationDoc(): PresentationDoc {
       y: 80,
       props: {
         text:
-          "Maps an atproto app.bsky.feed.post record to a simplified timeline event via a 4-step lens: rename text → body, rename createdAt → timestamp, compute charCount, and tag with source=\"bluesky\". The lens is bidirectional — Cmd+E to see the full circuit.",
+          "This demo maps an atproto post into a simplified timeline event using a four-step lens.\n\n1. Rename \"text\" to \"body\"\n2. Rename \"createdAt\" to \"timestamp\"\n3. Compute \"charCount\" (the length of the body)\n4. Add \"source\" with value \"bluesky\"\n\nThe lens is bidirectional: press Cmd+E to reveal the full circuit and try editing the output.",
       },
     },
     {
@@ -195,8 +195,14 @@ export async function loadLexiconMapperTemplate(): Promise<void> {
     evaluationError: null,
   });
 
-  // (2) Presentation layer.
+  // (2) Presentation layer — set this FIRST so the UI enters
+  // presentation mode immediately rather than blocking on the network
+  // fetch in step (5). This is what the e2e tests wait on.
   useCircuitStore.getState().setPresentationDoc(buildPresentationDoc());
+
+  // (6) Seed the input with the canonical post record eagerly (before
+  // the async resolve in step 5) so the UI is populated right away.
+  useCircuitStore.getState().setInputData(JSON.stringify(CANONICAL_POST, null, 2));
 
   // (3) Add the real lens chain.
   const beforeIds = new Set(useCircuitStore.getState().nodes.map((n) => n.id));
@@ -227,34 +233,35 @@ export async function loadLexiconMapperTemplate(): Promise<void> {
   }
 
   // (5) Auto-resolve the default lexicon and assign as source schema.
+  // This is fire-and-forget: we don't await it so the template returns
+  // immediately and the UI enters presentation mode without blocking on
+  // a network fetch. If the fetch succeeds, the schema is installed in
+  // the background; if it fails, the user can hit Resolve manually.
+  resolveDefaultLexicon();
+}
+
+async function resolveDefaultLexicon(): Promise<void> {
   try {
     const url = `${LEXICON_GARDEN_XRPC}?nsid=${encodeURIComponent(DEFAULT_NSID)}`;
     const res = await fetch(url);
-    if (res.ok) {
-      const body = await res.json();
-      if (body && typeof body.schema === "object") {
-        const result = wasm.parseAtprotoLexicon(JSON.stringify(body.schema));
-        useCircuitStore.setState((s) => ({
-          importedSchemas: [
-            ...s.importedSchemas,
-            {
-              handle: result.handle,
-              name: `${DEFAULT_NSID} (lexicon, ${result.summary.vertex_count}V)`,
-              protocol: result.summary.protocol,
-              vertexCount: result.summary.vertex_count,
-              edgeCount: result.summary.edge_count,
-            },
-          ],
-        }));
-        useCircuitStore.getState().assignSourceSchema(result.handle);
-      }
-    }
+    if (!res.ok) return;
+    const body = await res.json();
+    if (!body || typeof body.schema !== "object") return;
+    const result = wasm.parseAtprotoLexicon(JSON.stringify(body.schema));
+    useCircuitStore.setState((s) => ({
+      importedSchemas: [
+        ...s.importedSchemas,
+        {
+          handle: result.handle,
+          name: `${DEFAULT_NSID} (lexicon, ${result.summary.vertex_count}V)`,
+          protocol: result.summary.protocol,
+          vertexCount: result.summary.vertex_count,
+          edgeCount: result.summary.edge_count,
+        },
+      ],
+    }));
+    useCircuitStore.getState().assignSourceSchema(result.handle);
   } catch (err) {
-    // Offline / CORS-blocked / parse error: fall through silently. The
-    // user can hit Resolve manually in the lexicon import widget.
     console.warn("lexiconMapper: auto-resolve failed:", err);
   }
-
-  // (6) Seed the input with the canonical post record.
-  useCircuitStore.getState().setInputData(JSON.stringify(CANONICAL_POST, null, 2));
 }

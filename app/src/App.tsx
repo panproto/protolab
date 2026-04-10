@@ -236,8 +236,7 @@ export default function App() {
       }
 
       if (url.template === "lexicon_mapper") {
-        await loadLexiconMapperTemplate();
-        if (cancelled) return;
+        loadLexiconMapperTemplate();
         setMode("presentation");
         return;
       }
@@ -247,8 +246,7 @@ export default function App() {
       // editor without loading the template, so authors starting from
       // scratch don't get template nodes injected into their circuit.
       if (!hasParams) {
-        await loadLexiconMapperTemplate();
-        if (cancelled) return;
+        loadLexiconMapperTemplate();
         setMode("presentation");
       }
     })();
