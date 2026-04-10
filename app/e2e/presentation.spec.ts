@@ -35,6 +35,7 @@ base.describe("default landing", () => {
     });
     await expect(page.locator('[data-widget="heading"]')).toBeVisible();
     await expect(page.locator('[data-widget="paragraph"]')).toBeVisible();
+    await expect(page.locator('[data-widget="lens_chain"]')).toBeVisible();
     await expect(page.locator('[data-widget="lexicon_import"]')).toBeVisible();
     await expect(page.locator('[data-widget="input_json"]')).toBeVisible();
     await expect(page.locator('[data-widget="output_json"]')).toBeVisible();

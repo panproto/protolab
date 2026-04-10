@@ -15,6 +15,7 @@ import { InputJsonWidget } from "./widgets/InputJsonWidget";
 import { OutputJsonWidget } from "./widgets/OutputJsonWidget";
 import { RunButtonWidget } from "./widgets/RunButtonWidget";
 import { LexiconImportWidget } from "./widgets/LexiconImportWidget";
+import { LensChainWidget } from "./widgets/LensChainWidget";
 import { UnknownWidget } from "./widgets/UnknownWidget";
 import type { PresentationWidget, WidgetKind } from "../store/circuitStore";
 
@@ -33,6 +34,7 @@ const REGISTRY: Record<WidgetKind, WidgetComponent> = {
   output_json: OutputJsonWidget,
   run_button: RunButtonWidget,
   lexicon_import: LexiconImportWidget,
+  lens_chain: LensChainWidget,
 };
 
 /**

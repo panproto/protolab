@@ -115,11 +115,18 @@ function buildPresentationDoc(): PresentationDoc {
       kind: "paragraph",
       column: "",
       x: 40,
-      y: 80,
+      y: 70,
       props: {
-        text:
-          "This demo maps an atproto post into a simplified timeline event using a four-step lens.\n\n1. Rename \"text\" to \"body\"\n2. Rename \"createdAt\" to \"timestamp\"\n3. Compute \"charCount\" (the length of the body)\n4. Add \"source\" with value \"bluesky\"\n\nThe lens is bidirectional: press Cmd+E to reveal the full circuit and try editing the output.",
+        text: "This lens is bidirectional: press Cmd+E to reveal the full circuit and try editing the output.",
       },
+    },
+    {
+      id: "w_lens_chain",
+      kind: "lens_chain",
+      column: "",
+      x: 40,
+      y: 110,
+      props: {},
     },
     {
       id: "w_lexicon",

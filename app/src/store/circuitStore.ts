@@ -200,7 +200,8 @@ export type WidgetKind =
   | "input_json"
   | "output_json"
   | "run_button"
-  | "lexicon_import";
+  | "lexicon_import"
+  | "lens_chain";
 
 /**
  * A single presentation widget. Widgets live in the presentation layer,

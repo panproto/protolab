@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] — 2026-04-10
+
+### Added
+
+- **Lens chain widget**: presentation mode now shows the actual circuit
+  pipeline as a compact visual summary (component name, optic badge,
+  key params). This reads live from the store, so edits in edit mode
+  are reflected immediately; no more stale hardcoded descriptions.
+
 ## [0.2.1] — 2026-04-10
 
 ### Fixed

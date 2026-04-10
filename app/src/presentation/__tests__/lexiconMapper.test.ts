@@ -109,7 +109,7 @@ describe("loadLexiconMapperTemplate: presentationDoc", () => {
   it("installs exactly 6 widgets", async () => {
     await loadLexiconMapperTemplate();
     const { widgets } = useCircuitStore.getState().presentationDoc;
-    expect(widgets).toHaveLength(6);
+    expect(widgets).toHaveLength(7);
   });
 
   it("widgets have the correct kinds in order", async () => {
@@ -119,6 +119,7 @@ describe("loadLexiconMapperTemplate: presentationDoc", () => {
     expect(kinds).toEqual([
       "heading",
       "paragraph",
+      "lens_chain",
       "lexicon_import",
       "input_json",
       "output_json",
@@ -298,7 +299,7 @@ describe("loadLexiconMapperTemplate: lexicon auto-resolve", () => {
     await loadLexiconMapperTemplate();
     const { presentationDoc } = useCircuitStore.getState();
     expect(presentationDoc.title).toBe("Lexicon Mapper");
-    expect(presentationDoc.widgets).toHaveLength(6);
+    expect(presentationDoc.widgets).toHaveLength(7);
   });
 
   it("still seeds inputDataJson when lexicon fetch fails", async () => {
