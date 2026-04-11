@@ -235,13 +235,13 @@ export default function App() {
         return;
       }
 
-      // Load the template unless the user explicitly requested the raw
-      // editor via `?mode=edit`. This covers:
-      //   - Fresh visit with no params  → template + presentation
-      //   - `?template=lexicon_mapper`   → template + presentation
-      //   - `?mode=presentation`         → template + presentation (e.g. refresh)
-      //   - `?mode=edit`                 → raw demo editor, no template
-      if (url.mode !== "edit") {
+      // Load the template unless the user explicitly passed ?mode=edit.
+      // readUrlState defaults mode to "edit" when no param is present,
+      // so we check the raw URL to distinguish "no params" (→ template)
+      // from "?mode=edit" (→ raw editor).
+      const rawMode = new URLSearchParams(window.location.search).get("mode");
+      const explicitEditMode = rawMode === "edit";
+      if (!explicitEditMode) {
         try {
           loadLexiconMapperTemplate();
         } catch (err) {

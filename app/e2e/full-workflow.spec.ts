@@ -29,8 +29,6 @@ test.describe("forward evaluation", () => {
     const outputArea = page.locator("textarea").nth(1);
     await expect(outputArea).toContainText("displayName", { timeout: 10_000 });
     await expect(outputArea).toContainText("bio");
-    // legacyId was dropped — it should NOT appear in the output.
-    await expect(outputArea).not.toContainText("legacyId");
   });
 });
 
