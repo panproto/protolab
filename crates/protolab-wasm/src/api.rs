@@ -582,6 +582,357 @@ fn parse_atproto_lexicon_inner(json_source: &str) -> Result<Vec<u8>, WasmError> 
         .map_err(|e| WasmError::SerializationFailed(e.to_string()))
 }
 
+/// Parse a schema in any supported protocol's native format.
+///
+/// Takes a protocol name (e.g. "openapi", "mongodb", "avro", "atproto")
+/// and the raw input (JSON string for most protocols; plain text for
+/// DSL-based protocols like CDDL, ASN.1, FlatBuffers). Dispatches to
+/// the protocol's parser in `panproto-protocols` and returns the same
+/// `{handle, summary}` shape as `import_schema_json`.
+#[wasm_bindgen]
+pub fn parse_native_schema(protocol_name: &str, input: &str) -> Result<Vec<u8>, JsError> {
+    parse_native_schema_inner(protocol_name, input).map_err(Into::into)
+}
+
+fn parse_native_schema_inner(protocol_name: &str, input: &str) -> Result<Vec<u8>, WasmError> {
+    use panproto_protocols as pp;
+
+    let key = protocol_name.to_ascii_lowercase();
+
+    // Text-based parsers (input is raw DSL text, not JSON).
+    let schema = match key.as_str() {
+        "cddl" => pp::data_schema::cddl::parse_cddl(input)
+            .map_err(|e| WasmError::DeserializationFailed(format!("{key}: {e}")))?,
+        "asn1" | "asn.1" => pp::serialization::asn1::parse_asn1(input)
+            .map_err(|e| WasmError::DeserializationFailed(format!("{key}: {e}")))?,
+        "bond" => pp::serialization::bond::parse_bond(input)
+            .map_err(|e| WasmError::DeserializationFailed(format!("{key}: {e}")))?,
+        "flatbuffers" | "fbs" => pp::serialization::flatbuffers::parse_fbs(input)
+            .map_err(|e| WasmError::DeserializationFailed(format!("{key}: {e}")))?,
+        "conllu" => pp::annotation::conllu::parse_conllu(input)
+            .map_err(|e| WasmError::DeserializationFailed(format!("{key}: {e}")))?,
+        "cassandra" | "cql" => pp::database::cassandra::parse_cql(input)
+            .map_err(|e| WasmError::DeserializationFailed(format!("{key}: {e}")))?,
+        "neo4j" | "cypher" => pp::database::neo4j::parse_cypher_schema(input)
+            .map_err(|e| WasmError::DeserializationFailed(format!("{key}: {e}")))?,
+        "redis" => pp::database::redis::parse_redis_schema(input)
+            .map_err(|e| WasmError::DeserializationFailed(format!("{key}: {e}")))?,
+        _ => {
+            // JSON-based parsers: parse input as serde_json::Value first.
+            let value: serde_json::Value = serde_json::from_str(input)
+                .map_err(|e| WasmError::DeserializationFailed(format!("{key} JSON: {e}")))?;
+            parse_json_protocol(&key, &value)?
+        }
+    };
+
+    let summary = SchemaSummary {
+        protocol: schema.protocol.clone(),
+        vertex_count: schema.vertices.len(),
+        edge_count: schema.edges.len(),
+    };
+    let handle = slab::alloc(Resource::Schema(schema));
+
+    #[derive(Serialize)]
+    struct ImportResult {
+        handle: u32,
+        summary: SchemaSummary,
+    }
+    rmp_serde::to_vec_named(&ImportResult { handle, summary })
+        .map_err(|e| WasmError::SerializationFailed(e.to_string()))
+}
+
+/// Dispatch JSON input to the appropriate protocol parser.
+fn parse_json_protocol(
+    key: &str,
+    value: &serde_json::Value,
+) -> Result<panproto_schema::Schema, WasmError> {
+    use panproto_protocols as pp;
+    let err = |e: panproto_protocols::ProtocolError| {
+        WasmError::DeserializationFailed(format!("{key}: {e}"))
+    };
+    match key {
+        // ATProto
+        "atproto" => pp::web_document::atproto::parse_lexicon(value).map_err(err),
+        // API
+        "openapi" | "swagger" => pp::api::openapi::parse_openapi(value).map_err(err),
+        "asyncapi" => pp::api::asyncapi::parse_asyncapi(value).map_err(err),
+        "raml" => pp::api::raml::parse_raml_schema(value).map_err(err),
+        "jsonapi" | "json:api" => pp::api::jsonapi::parse_jsonapi(value).map_err(err),
+        // Serialization
+        "avro" => pp::serialization::avro::parse_avsc(value).map_err(err),
+        "msgpack" | "msgpack-schema" => {
+            pp::serialization::msgpack_schema::parse_msgpack_schema(value).map_err(err)
+        }
+        // Data Schema
+        "bson" => pp::data_schema::bson::parse_bson_schema(value).map_err(err),
+        // Database
+        "mongodb" | "mongo" => pp::database::mongodb::parse_mongodb_schema(value).map_err(err),
+        "dynamodb" | "dynamo" => pp::database::dynamodb::parse_dynamodb(value).map_err(err),
+        // Web/Document
+        "docx" => pp::web_document::docx::parse_docx_schema(value).map_err(err),
+        "odf" => pp::web_document::odf::parse_odf_schema(value).map_err(err),
+        // Data Science
+        "parquet" => pp::data_science::parquet::parse_parquet_schema(value).map_err(err),
+        "arrow" => pp::data_science::arrow::parse_arrow_schema(value).map_err(err),
+        "dataframe" => pp::data_science::dataframe::parse_dataframe_schema(value).map_err(err),
+        // Domain
+        "geojson" => pp::domain::geojson::parse_geojson_schema(value).map_err(err),
+        "fhir" => pp::domain::fhir::parse_fhir_schema(value).map_err(err),
+        "rss" | "atom" | "rss_atom" => {
+            pp::domain::rss_atom::parse_rss_atom_schema(value).map_err(err)
+        }
+        "vcard" | "ical" | "vcard_ical" => {
+            pp::domain::vcard_ical::parse_vcard_ical_schema(value).map_err(err)
+        }
+        "edi_x12" | "x12" => pp::domain::edi_x12::parse_edi_schema(value).map_err(err),
+        "swift_mt" | "swift" => pp::domain::swift_mt::parse_swift_mt_schema(value).map_err(err),
+        // Config
+        "k8s" | "k8s_crd" | "kubernetes" => {
+            pp::config::k8s_crd::parse_k8s_crd_schema(value).map_err(err)
+        }
+        "cloudformation" => pp::config::cloudformation::parse_cfn_schema(value).map_err(err),
+        "ansible" => pp::config::ansible::parse_ansible_schema(value).map_err(err),
+        // Annotation
+        "fovea" => pp::annotation::fovea::parse_fovea(value).map_err(err),
+        "tei" => pp::annotation::tei::parse_tei(value).map_err(err),
+        "folia" => pp::annotation::folia::parse_folia(value).map_err(err),
+        "amr" => pp::annotation::amr::parse_amr_schema(value).map_err(err),
+        "web_annotation" => {
+            pp::annotation::web_annotation::parse_web_annotation_schema(value).map_err(err)
+        }
+        "decomp" => pp::annotation::decomp::parse_decomp(value).map_err(err),
+        "elan" => pp::annotation::elan::parse_elan(value).map_err(err),
+        "laf_graf" => pp::annotation::laf_graf::parse_laf_graf(value).map_err(err),
+        "nif" => pp::annotation::nif::parse_nif_schema(value).map_err(err),
+        "timeml" => pp::annotation::timeml::parse_timeml(value).map_err(err),
+        "ucca" => pp::annotation::ucca::parse_ucca(value).map_err(err),
+        "iso_space" => pp::annotation::iso_space::parse_iso_space(value).map_err(err),
+        "naf" => pp::annotation::naf::parse_naf(value).map_err(err),
+        "brat" => pp::annotation::brat::parse_brat(value).map_err(err),
+        "uima" => pp::annotation::uima::parse_uima_schema(value).map_err(err),
+        "concrete" => pp::annotation::concrete::parse_concrete_schema(value).map_err(err),
+        "bead" => pp::annotation::bead::parse_bead(value).map_err(err),
+        "paula" => pp::annotation::paula::parse_paula_schema(value).map_err(err),
+        other => Err(WasmError::DeserializationFailed(format!(
+            "unsupported protocol: {other}"
+        ))),
+    }
+}
+
+/// Return metadata for all supported protocols (name, category,
+/// input format, description). Used by the UI to populate the protocol
+/// selector dropdown.
+#[wasm_bindgen]
+pub fn list_supported_protocols() -> Result<Vec<u8>, JsError> {
+    #[derive(Serialize)]
+    struct ProtocolMeta {
+        name: &'static str,
+        category: &'static str,
+        input_format: &'static str,
+        description: &'static str,
+    }
+
+    let protocols = vec![
+        // Web/Document
+        ProtocolMeta {
+            name: "atproto",
+            category: "Web/Document",
+            input_format: "json",
+            description: "AT Protocol lexicon schema",
+        },
+        ProtocolMeta {
+            name: "docx",
+            category: "Web/Document",
+            input_format: "json",
+            description: "OOXML document schema",
+        },
+        ProtocolMeta {
+            name: "odf",
+            category: "Web/Document",
+            input_format: "json",
+            description: "OpenDocument format schema",
+        },
+        // API
+        ProtocolMeta {
+            name: "openapi",
+            category: "API",
+            input_format: "json",
+            description: "OpenAPI / Swagger specification",
+        },
+        ProtocolMeta {
+            name: "asyncapi",
+            category: "API",
+            input_format: "json",
+            description: "AsyncAPI specification",
+        },
+        ProtocolMeta {
+            name: "raml",
+            category: "API",
+            input_format: "json",
+            description: "RAML API specification",
+        },
+        ProtocolMeta {
+            name: "jsonapi",
+            category: "API",
+            input_format: "json",
+            description: "JSON:API resource schema",
+        },
+        // Serialization
+        ProtocolMeta {
+            name: "avro",
+            category: "Serialization",
+            input_format: "json",
+            description: "Apache Avro schema (avsc)",
+        },
+        ProtocolMeta {
+            name: "msgpack",
+            category: "Serialization",
+            input_format: "json",
+            description: "MessagePack schema",
+        },
+        ProtocolMeta {
+            name: "asn1",
+            category: "Serialization",
+            input_format: "text",
+            description: "ASN.1 notation",
+        },
+        ProtocolMeta {
+            name: "bond",
+            category: "Serialization",
+            input_format: "text",
+            description: "Bond schema",
+        },
+        ProtocolMeta {
+            name: "flatbuffers",
+            category: "Serialization",
+            input_format: "text",
+            description: "FlatBuffers schema (.fbs)",
+        },
+        // Data Schema
+        ProtocolMeta {
+            name: "cddl",
+            category: "Data Schema",
+            input_format: "text",
+            description: "CDDL schema",
+        },
+        ProtocolMeta {
+            name: "bson",
+            category: "Data Schema",
+            input_format: "json",
+            description: "BSON schema",
+        },
+        // Database
+        ProtocolMeta {
+            name: "mongodb",
+            category: "Database",
+            input_format: "json",
+            description: "MongoDB $jsonSchema",
+        },
+        ProtocolMeta {
+            name: "dynamodb",
+            category: "Database",
+            input_format: "json",
+            description: "DynamoDB table schema",
+        },
+        ProtocolMeta {
+            name: "cassandra",
+            category: "Database",
+            input_format: "text",
+            description: "CQL schema (Cassandra)",
+        },
+        ProtocolMeta {
+            name: "neo4j",
+            category: "Database",
+            input_format: "text",
+            description: "Cypher schema (Neo4j)",
+        },
+        ProtocolMeta {
+            name: "redis",
+            category: "Database",
+            input_format: "text",
+            description: "Redis schema",
+        },
+        // Data Science
+        ProtocolMeta {
+            name: "parquet",
+            category: "Data Science",
+            input_format: "json",
+            description: "Parquet schema",
+        },
+        ProtocolMeta {
+            name: "arrow",
+            category: "Data Science",
+            input_format: "json",
+            description: "Arrow schema",
+        },
+        ProtocolMeta {
+            name: "dataframe",
+            category: "Data Science",
+            input_format: "json",
+            description: "DataFrame schema",
+        },
+        // Domain
+        ProtocolMeta {
+            name: "geojson",
+            category: "Domain",
+            input_format: "json",
+            description: "GeoJSON schema",
+        },
+        ProtocolMeta {
+            name: "fhir",
+            category: "Domain",
+            input_format: "json",
+            description: "FHIR resource schema",
+        },
+        ProtocolMeta {
+            name: "rss_atom",
+            category: "Domain",
+            input_format: "json",
+            description: "RSS / Atom feed schema",
+        },
+        ProtocolMeta {
+            name: "vcard_ical",
+            category: "Domain",
+            input_format: "json",
+            description: "vCard / iCal schema",
+        },
+        ProtocolMeta {
+            name: "edi_x12",
+            category: "Domain",
+            input_format: "json",
+            description: "EDI X12 schema",
+        },
+        ProtocolMeta {
+            name: "swift_mt",
+            category: "Domain",
+            input_format: "json",
+            description: "SWIFT MT schema",
+        },
+        // Config
+        ProtocolMeta {
+            name: "k8s_crd",
+            category: "Config",
+            input_format: "json",
+            description: "Kubernetes CRD schema",
+        },
+        ProtocolMeta {
+            name: "cloudformation",
+            category: "Config",
+            input_format: "json",
+            description: "CloudFormation schema",
+        },
+        ProtocolMeta {
+            name: "ansible",
+            category: "Config",
+            input_format: "json",
+            description: "Ansible schema",
+        },
+    ];
+
+    rmp_serde::to_vec_named(&protocols)
+        .map_err(|e| JsError::new(&format!("serialize protocols: {e}")))
+}
+
 /// Auto-generate a lens between source and target schemas, store it in
 /// the slab, AND install field-level circuit components derived from the
 /// compiled migration so edit mode reflects the auto-generated lens.

@@ -297,6 +297,21 @@ export const putAutoLens = vi.fn(
   (_lensHandle: number, _modifiedJson: string, _complementHandle: number) => '{"restored": true}',
 );
 
+export const parseNativeSchema = vi.fn(
+  (_protocolName: string, _input: string): SchemaImportResult => ({
+    handle: 8,
+    summary: { protocol: "openapi", vertex_count: 6, edge_count: 5 },
+  }),
+);
+
+export const listSupportedProtocols = vi.fn(() => [
+  { name: "atproto", category: "Web/Document", input_format: "json", description: "AT Protocol lexicon schema" },
+  { name: "openapi", category: "API", input_format: "json", description: "OpenAPI / Swagger specification" },
+  { name: "avro", category: "Serialization", input_format: "json", description: "Apache Avro schema" },
+  { name: "mongodb", category: "Database", input_format: "json", description: "MongoDB $jsonSchema" },
+  { name: "cddl", category: "Data Schema", input_format: "text", description: "CDDL schema" },
+]);
+
 export const parseAtprotoLexicon = vi.fn(
   (_jsonSource: string): SchemaImportResult => ({
     handle: 7,
@@ -472,6 +487,17 @@ export function resetMockBridge(): void {
     complementHandle: 100,
   }));
   putAutoLens.mockImplementation(() => '{"restored": true}');
+  parseNativeSchema.mockImplementation(() => ({
+    handle: 8,
+    summary: { protocol: "openapi", vertex_count: 6, edge_count: 5 },
+  }));
+  listSupportedProtocols.mockImplementation(() => [
+    { name: "atproto", category: "Web/Document", input_format: "json", description: "AT Protocol lexicon schema" },
+    { name: "openapi", category: "API", input_format: "json", description: "OpenAPI / Swagger specification" },
+    { name: "avro", category: "Serialization", input_format: "json", description: "Apache Avro schema" },
+    { name: "mongodb", category: "Database", input_format: "json", description: "MongoDB $jsonSchema" },
+    { name: "cddl", category: "Data Schema", input_format: "text", description: "CDDL schema" },
+  ]);
   parseAtprotoLexicon.mockImplementation(() => ({
     handle: 7,
     summary: { protocol: "atproto", vertex_count: 5, edge_count: 4 },

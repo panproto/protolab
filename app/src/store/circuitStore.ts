@@ -200,7 +200,8 @@ export type WidgetKind =
   | "run_button"
   | "lexicon_import"
   | "lens_chain"
-  | "schema_mapping";
+  | "schema_mapping"
+  | "schema_import";
 
 /**
  * A single presentation widget. Widgets live in the presentation layer,

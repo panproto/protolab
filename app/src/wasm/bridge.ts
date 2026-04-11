@@ -39,6 +39,8 @@ import init, {
   evaluate_expression,
   list_expr_builtins,
   parse_atproto_lexicon as parse_atproto_lexicon_wasm,
+  parse_native_schema as parse_native_schema_wasm,
+  list_supported_protocols as list_supported_protocols_wasm,
   auto_generate_and_store as auto_generate_and_store_wasm,
   evaluate_auto_lens as evaluate_auto_lens_wasm,
   put_auto_lens as put_auto_lens_wasm,
@@ -249,6 +251,31 @@ export function importSchema(jsonSource: string): SchemaImportResult {
 export function parseAtprotoLexicon(jsonSource: string): SchemaImportResult {
   const result = parse_atproto_lexicon_wasm(jsonSource);
   return decode(result) as SchemaImportResult;
+}
+
+/**
+ * Parse a schema in any supported protocol's native format. The
+ * protocol name determines which parser is used; input is either JSON
+ * text (most protocols) or DSL text (CDDL, ASN.1, FBS, etc.).
+ */
+export function parseNativeSchema(protocolName: string, input: string): SchemaImportResult {
+  const result = parse_native_schema_wasm(protocolName, input);
+  return decode(result) as SchemaImportResult;
+}
+
+export interface ProtocolMeta {
+  name: string;
+  category: string;
+  input_format: "json" | "text";
+  description: string;
+}
+
+/**
+ * List all supported protocols with metadata for the UI dropdown.
+ */
+export function listSupportedProtocols(): ProtocolMeta[] {
+  const result = list_supported_protocols_wasm();
+  return decode(result) as ProtocolMeta[];
 }
 
 // ── Auto-lens (native panproto pipeline) ──────────────────────────

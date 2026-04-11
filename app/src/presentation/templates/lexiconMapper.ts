@@ -121,13 +121,13 @@ function buildPresentationDoc(): PresentationDoc {
     },
     {
       id: "w_source_schema",
-      kind: "lexicon_import",
-      props: { label: "Source schema", default_nsid: DEFAULT_NSID, role: "source" },
+      kind: "schema_import",
+      props: { label: "Source schema", default_protocol: "atproto", default_nsid: DEFAULT_NSID, role: "source" },
     },
     {
       id: "w_target_schema",
-      kind: "lexicon_import",
-      props: { label: "Target schema (optional; defaults to source)", default_nsid: "", role: "target" },
+      kind: "schema_import",
+      props: { label: "Target schema (optional; defaults to source)", default_protocol: "atproto", default_nsid: "", role: "target" },
     },
     {
       id: "w_schema_mapping",

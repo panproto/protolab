@@ -15,6 +15,7 @@ import { InputJsonWidget } from "./widgets/InputJsonWidget";
 import { OutputJsonWidget } from "./widgets/OutputJsonWidget";
 import { RunButtonWidget } from "./widgets/RunButtonWidget";
 import { LexiconImportWidget } from "./widgets/LexiconImportWidget";
+import { SchemaImportWidget } from "./widgets/SchemaImportWidget";
 import { LensChainWidget } from "./widgets/LensChainWidget";
 import { SchemaMappingWidget } from "./widgets/SchemaMappingWidget";
 import { UnknownWidget } from "./widgets/UnknownWidget";
@@ -34,7 +35,8 @@ const REGISTRY: Record<WidgetKind, WidgetComponent> = {
   input_json: InputJsonWidget,
   output_json: OutputJsonWidget,
   run_button: RunButtonWidget,
-  lexicon_import: LexiconImportWidget,
+  lexicon_import: LexiconImportWidget, // backward compat
+  schema_import: SchemaImportWidget,
   lens_chain: LensChainWidget,
   schema_mapping: SchemaMappingWidget,
 };

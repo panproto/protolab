@@ -113,8 +113,8 @@ describe("loadLexiconMapperTemplate: presentationDoc", () => {
     expect(kinds).toEqual([
       "heading",
       "paragraph",
-      "lexicon_import",
-      "lexicon_import",
+      "schema_import",
+      "schema_import",
       "schema_mapping",
       "input_json",
       "lens_chain",
@@ -123,10 +123,10 @@ describe("loadLexiconMapperTemplate: presentationDoc", () => {
     ]);
   });
 
-  it("lexicon_import widget has the default NSID set to 'app.bsky.feed.post'", async () => {
+  it("source schema_import widget has the default NSID set to 'app.bsky.feed.post'", async () => {
     await loadLexiconMapperTemplate();
     const { widgets } = useCircuitStore.getState().presentationDoc;
-    const lexicon = widgets.find((w) => w.kind === "lexicon_import");
+    const lexicon = widgets.find((w) => w.kind === "schema_import" && w.props.role === "source");
     expect(lexicon).toBeDefined();
     expect(lexicon!.props.default_nsid).toBe("app.bsky.feed.post");
   });
