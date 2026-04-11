@@ -20,7 +20,6 @@ test.describe("forward evaluation", () => {
     ready: page,
   }) => {
     // The demo circuit: rename(name→displayName) → add(bio) → drop(legacyId)
-    // Input: {"name":"Alice","legacyId":42}
     await page.getByRole("button", { name: /Run/ }).click();
 
     // The output textarea is the second <textarea> on the page (after the

@@ -49,8 +49,10 @@ const LEXICON_GARDEN_XRPC =
 const DEFAULT_NSID = "app.bsky.feed.post";
 
 const CANONICAL_POST = {
-  text: "Hello, ATProtocol!",
-  createdAt: "2024-01-15T12:00:00.000Z",
+  text: "Just shipped a bidirectional schema mapper that translates between atproto lexicons using panproto's protolens pipeline. Rename fields, compute derived values, add defaults; the lens runs both ways so you can edit the output and recover the original. Try it at panproto.dev/protolab",
+  createdAt: "2026-04-10T14:30:00.000Z",
+  langs: ["en"],
+  tags: ["panproto", "atproto", "schemas"],
 };
 
 interface ComponentSpec {
@@ -108,7 +110,7 @@ function buildPresentationDoc(): PresentationDoc {
     {
       id: "w_heading",
       kind: "heading",
-      props: { text: "Lexicon Mapper", level: "1" },
+      props: { text: "protolab", level: "1" },
     },
     {
       id: "w_paragraph",
@@ -155,7 +157,7 @@ function buildPresentationDoc(): PresentationDoc {
   ];
 
   return {
-    title: "Lexicon Mapper",
+    title: "protolab",
     widgets,
   };
 }

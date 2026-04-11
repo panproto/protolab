@@ -20,8 +20,10 @@ const EXAMPLES: LexiconExample[] = [
     nsid: "app.bsky.feed.post",
     record: {
       $type: "app.bsky.feed.post",
-      text: "Hello, ATProtocol!",
-      createdAt: "2024-01-15T12:00:00.000Z",
+      text: "Just shipped a bidirectional schema mapper that translates between atproto lexicons using panproto's protolens pipeline. Rename fields, compute derived values, add defaults; the lens runs both ways so you can edit the output and recover the original. Try it at panproto.dev/protolab",
+      createdAt: "2026-04-10T14:30:00.000Z",
+      langs: ["en"],
+      tags: ["panproto", "atproto", "schemas"],
     },
   },
   {

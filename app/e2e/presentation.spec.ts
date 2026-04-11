@@ -23,12 +23,12 @@ base.describe("default landing", () => {
       timeout: 15_000,
     });
     // Title from the presentationDoc.
-    await expect(page.getByRole("heading", { name: "Lexicon Mapper" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "protolab" })).toBeVisible();
     // Default layout is form.
     await expect(page.locator('[data-layout="form"]')).toBeVisible();
   });
 
-  base("shows all six template widgets", async ({ page }) => {
+  base("shows the template widgets", async ({ page }) => {
     await page.goto("/");
     await expect(page.locator('[data-mode="presentation"]')).toBeVisible({
       timeout: 15_000,
@@ -51,7 +51,9 @@ base.describe("default landing", () => {
       timeout: 15_000,
     });
     const textarea = page.locator('[data-widget="input_json"] textarea');
-    await expect(textarea).toContainText("Hello, ATProtocol!");
+    // The template seeds the input with the canonical post example.
+    // Verify it contains the expected schema fields, not exact values.
+    await expect(textarea).toContainText("text");
     await expect(textarea).toContainText("createdAt");
   });
 });
@@ -224,7 +226,7 @@ base.describe("explicit ?template=lexicon_mapper", () => {
     await expect(page.locator('[data-mode="presentation"]')).toBeVisible({
       timeout: 15_000,
     });
-    await expect(page.getByRole("heading", { name: "Lexicon Mapper" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "protolab" })).toBeVisible();
     await expect(page.locator('[data-widget="heading"]')).toBeVisible();
     await expect(page.locator('[data-widget="run_button"]')).toBeVisible();
   });

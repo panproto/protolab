@@ -26,8 +26,8 @@ test.describe("demo circuit startup", () => {
   }) => {
     // The DataPanel seeds `inputDataJson` with a realistic user record.
     // The JSON renders inside a <pre>/<code>/<textarea> — search all text.
-    await expect(page.getByText(/"name":\s*"Alice"/).first()).toBeVisible();
-    await expect(page.getByText(/"legacyId":\s*42/).first()).toBeVisible();
+    await expect(page.getByText(/"name":\s*"Alice Chen"/).first()).toBeVisible();
+    await expect(page.getByText(/"legacyId":\s*7042/).first()).toBeVisible();
 
     // Click Run. The output should contain `displayName` (rename applied)
     // and `bio` (add_field applied). The button text is "Run ▶".
@@ -35,7 +35,7 @@ test.describe("demo circuit startup", () => {
 
     // Wait for the output panel to populate.
     await expect(
-      page.getByText(/"displayName"\s*:\s*"Alice"/).first(),
+      page.getByText(/"displayName"\s*:\s*"Alice Chen"/).first(),
     ).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText(/"bio"/).first()).toBeVisible();
   });

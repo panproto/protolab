@@ -40,7 +40,7 @@ test.describe("node inspector", () => {
     // intermediate state.
     await page.getByRole("button", { name: /Run/ }).click();
     await expect(
-      page.getByText(/"displayName"\s*:\s*"Alice"/).first(),
+      page.getByText(/"displayName"\s*:\s*"Alice Chen"/).first(),
     ).toBeVisible({ timeout: 10_000 });
 
     const renameNode = page
@@ -56,6 +56,6 @@ test.describe("node inspector", () => {
     await expect(bangPanel).toBeVisible();
     // After rename only, `legacyId` is still present (not yet dropped).
     await expect(bangPanel).toContainText(/"legacyId"\s*:\s*42/);
-    await expect(bangPanel).toContainText(/"displayName"\s*:\s*"Alice"/);
+    await expect(bangPanel).toContainText(/"displayName"\s*:\s*"Alice Chen"/);
   });
 });

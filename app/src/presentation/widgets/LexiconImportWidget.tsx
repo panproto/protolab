@@ -128,12 +128,15 @@ export function LexiconImportWidget({ widget }: WidgetProps) {
         assignSourceSchema(result.handle);
       }
 
-      // Seed input with a canonical example when resolving a source schema.
+      // Seed input with a canonical example when resolving a source schema,
+      // but only if the current input is empty or still holds the store's
+      // initial default (untouched by the user).
       if (role === "source" && seededFromNsid) {
         const example = exampleRecordForNsid(seededFromNsid);
         if (example) {
-          const current = useCircuitStore.getState().inputDataJson;
-          if (!current || current.trim() === "" || current.includes('"Alice"')) {
+          const current = useCircuitStore.getState().inputDataJson.trim();
+          const isEmpty = !current || current === "" || current === "{}";
+          if (isEmpty) {
             setInputData(JSON.stringify(example, null, 2));
           }
         }

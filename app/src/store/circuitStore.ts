@@ -386,7 +386,7 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
   autoLensError: null,
   autoLensChainSteps: [],
   autoLensSchemaMapping: null,
-  inputDataJson: '{\n  "name": "Alice",\n  "legacyId": 42\n}',
+  inputDataJson: "",
   outputDataJson: "",
   wireDataMap: {},
   evaluationError: null,
@@ -401,6 +401,7 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
         circuitHandle: handle,
         sourceSchemaHandle: source_schema_handle,
         loading: false,
+        inputDataJson: '{\n  "name": "Alice Chen",\n  "legacyId": 7042,\n  "email": "alice@example.com",\n  "joinedAt": "2023-06-15"\n}',
         importedSchemas: [
           {
             handle: source_schema_handle,
