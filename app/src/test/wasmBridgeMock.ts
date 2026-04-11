@@ -270,11 +270,31 @@ export const importSchema = vi.fn(
   }),
 );
 
-export const autoGenerateLens = vi.fn(
+export const autoGenerateAndStore = vi.fn(
   (_circuitHandle: number, _sourceHandle: number, _targetHandle: number) => ({
-    alignmentQuality: 0.85,
+    lensHandle: 99,
+    quality: 0.85,
+    chainSteps: [{ name: "rename_sort", source_transform: "Identity", target_transform: "RenameSort" }],
+    schemaMapping: {
+      vertex_remap: [["old_v", "new_v"]],
+      added_vertices: ["added_v"],
+      removed_vertices: ["removed_v"],
+      surviving_vertices: ["surviving_v"],
+      field_transforms: [],
+    },
     graph: defaultGraph(),
   }),
+);
+
+export const evaluateAutoLens = vi.fn(
+  (_lensHandle: number, _inputJson: string) => ({
+    outputJson: '{"transformed": true}',
+    complementHandle: 100,
+  }),
+);
+
+export const putAutoLens = vi.fn(
+  (_lensHandle: number, _modifiedJson: string, _complementHandle: number) => '{"restored": true}',
 );
 
 export const parseAtprotoLexicon = vi.fn(
@@ -434,10 +454,24 @@ export function resetMockBridge(): void {
     handle: 1,
     summary: { protocol: "mock-protocol", vertex_count: 2, edge_count: 1 },
   }));
-  autoGenerateLens.mockImplementation(() => ({
-    alignmentQuality: 0.85,
+  autoGenerateAndStore.mockImplementation(() => ({
+    lensHandle: 99,
+    quality: 0.85,
+    chainSteps: [{ name: "rename_sort", source_transform: "Identity", target_transform: "RenameSort" }],
+    schemaMapping: {
+      vertex_remap: [["old_v", "new_v"]],
+      added_vertices: ["added_v"],
+      removed_vertices: ["removed_v"],
+      surviving_vertices: ["surviving_v"],
+      field_transforms: [],
+    },
     graph: defaultGraph(),
   }));
+  evaluateAutoLens.mockImplementation(() => ({
+    outputJson: '{"transformed": true}',
+    complementHandle: 100,
+  }));
+  putAutoLens.mockImplementation(() => '{"restored": true}');
   parseAtprotoLexicon.mockImplementation(() => ({
     handle: 7,
     summary: { protocol: "atproto", vertex_count: 5, edge_count: 4 },

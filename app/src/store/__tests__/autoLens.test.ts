@@ -9,7 +9,8 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useCircuitStore, emptyPresentationDoc } from "../circuitStore";
 import {
   resetMockBridge,
-  autoGenerateLens,
+  autoGenerateAndStore,
+  evaluateAutoLens,
   setSourceSchema,
 } from "../../test/wasmBridgeMock";
 
@@ -32,8 +33,12 @@ function resetStore(
       presentationDoc: emptyPresentationDoc(),
       sourceSchemaHandle: null,
       targetSchemaHandle: null,
+      autoLensHandle: null,
+      autoLensComplementHandle: null,
       autoLensStatus: "idle" as const,
       autoLensError: null,
+      autoLensChainSteps: [],
+      autoLensSchemaMapping: null,
       inputDataJson: "",
       outputDataJson: "",
       wireDataMap: {},
@@ -70,13 +75,13 @@ describe("assignTargetSchema", () => {
     resetStore({ sourceSchemaHandle: 1, circuitHandle: 0 });
     useCircuitStore.getState().assignTargetSchema(2);
     // The WASM autoGenerateLens mock should have been called.
-    expect(autoGenerateLens).toHaveBeenCalledWith(0, 1, 2);
+    expect(autoGenerateAndStore).toHaveBeenCalledWith(0, 1, 2);
   });
 
   it("does NOT trigger autoGenerateLens when set to null", () => {
     resetStore({ sourceSchemaHandle: 1, circuitHandle: 0 });
     useCircuitStore.getState().assignTargetSchema(null);
-    expect(autoGenerateLens).not.toHaveBeenCalled();
+    expect(autoGenerateAndStore).not.toHaveBeenCalled();
   });
 });
 
@@ -86,25 +91,25 @@ describe("autoGenerateLens", () => {
   it("does nothing when sourceSchemaHandle is null", () => {
     resetStore({ circuitHandle: 0, sourceSchemaHandle: null, targetSchemaHandle: 5 });
     useCircuitStore.getState().autoGenerateLens();
-    expect(autoGenerateLens).not.toHaveBeenCalled();
+    expect(autoGenerateAndStore).not.toHaveBeenCalled();
   });
 
   it("does nothing when targetSchemaHandle is null", () => {
     resetStore({ circuitHandle: 0, sourceSchemaHandle: 1, targetSchemaHandle: null });
     useCircuitStore.getState().autoGenerateLens();
-    expect(autoGenerateLens).not.toHaveBeenCalled();
+    expect(autoGenerateAndStore).not.toHaveBeenCalled();
   });
 
   it("does nothing when circuitHandle is null", () => {
     resetStore({ circuitHandle: null, sourceSchemaHandle: 1, targetSchemaHandle: 2 });
     useCircuitStore.getState().autoGenerateLens();
-    expect(autoGenerateLens).not.toHaveBeenCalled();
+    expect(autoGenerateAndStore).not.toHaveBeenCalled();
   });
 
-  it("calls wasm.autoGenerateLens with correct handles", () => {
+  it("calls wasm.autoGenerateAndStore with correct handles", () => {
     resetStore({ circuitHandle: 10, sourceSchemaHandle: 1, targetSchemaHandle: 2 });
     useCircuitStore.getState().autoGenerateLens();
-    expect(autoGenerateLens).toHaveBeenCalledWith(10, 1, 2);
+    expect(autoGenerateAndStore).toHaveBeenCalledWith(10, 1, 2);
   });
 
   it("applies the returned graph to the store", () => {
@@ -114,7 +119,7 @@ describe("autoGenerateLens", () => {
     expect(useCircuitStore.getState().nodes.length).toBe(3);
   });
 
-  it("sets autoLensStatus to 'success' and clears evaluationError on success", () => {
+  it("sets autoLensHandle + status on success", () => {
     resetStore({
       circuitHandle: 0,
       sourceSchemaHandle: 1,
@@ -124,11 +129,14 @@ describe("autoGenerateLens", () => {
     useCircuitStore.getState().autoGenerateLens();
     expect(useCircuitStore.getState().evaluationError).toBeNull();
     expect(useCircuitStore.getState().autoLensStatus).toBe("success");
+    expect(useCircuitStore.getState().autoLensHandle).toBe(99);
+    expect(useCircuitStore.getState().autoLensChainSteps.length).toBeGreaterThan(0);
+    expect(useCircuitStore.getState().autoLensSchemaMapping).not.toBeNull();
     expect(useCircuitStore.getState().autoLensError).toBeNull();
   });
 
-  it("sets autoLensStatus to 'failed' with message on failure (does NOT set evaluationError)", () => {
-    autoGenerateLens.mockImplementation(() => {
+  it("sets autoLensStatus to 'failed' on failure (does NOT set evaluationError)", () => {
+    autoGenerateAndStore.mockImplementation(() => {
       throw new Error("no morphism found between schemas");
     });
     resetStore({
@@ -150,7 +158,7 @@ describe("autoGenerateLens", () => {
   });
 
   it("preserves existing nodes when auto-lens throws", () => {
-    autoGenerateLens.mockImplementation(() => {
+    autoGenerateAndStore.mockImplementation(() => {
       throw new Error("no morphism");
     });
     const existingNodes = [
@@ -181,7 +189,7 @@ describe("assignSourceSchema interaction", () => {
   it("does not call autoGenerateLens (only target assignment does)", () => {
     resetStore({ circuitHandle: 0 });
     useCircuitStore.getState().assignSourceSchema(1);
-    expect(autoGenerateLens).not.toHaveBeenCalled();
+    expect(autoGenerateAndStore).not.toHaveBeenCalled();
   });
 
   it("refreshes the graph for optic reclassification", () => {

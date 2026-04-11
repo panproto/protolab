@@ -87,6 +87,46 @@ export function LensChainWidget(_props: WidgetProps) {
   const nodes = useCircuitStore((s) => s.nodes);
   const autoLensStatus = useCircuitStore((s) => s.autoLensStatus);
   const autoLensError = useCircuitStore((s) => s.autoLensError);
+  const autoLensChainSteps = useCircuitStore((s) => s.autoLensChainSteps);
+  const autoLensHandle = useCircuitStore((s) => s.autoLensHandle);
+
+  // When an auto-lens is active, show the protolens chain steps
+  // (theory-level transforms) instead of circuit component nodes.
+  if (autoLensHandle !== null && autoLensChainSteps.length > 0) {
+    return (
+      <div data-widget="lens_chain" style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+        <div style={{ fontSize: 11, color: "#666", marginBottom: 8, display: "flex", alignItems: "center", gap: 4 }}>
+          <span
+            title="Auto-generated protolens chain (theory-level transforms)"
+            style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 14, height: 14, borderRadius: "50%", border: "1px solid #555", fontSize: 9, color: "#777", cursor: "default", flexShrink: 0 }}
+          >i</span>
+          Auto-generated lens ({autoLensChainSteps.length} protolens steps). Press{" "}
+          <kbd style={{ display: "inline-block", padding: "0 4px", background: "oklch(0.22 0.01 250)", border: "1px solid oklch(0.35 0.01 250)", borderRadius: 3, fontFamily: "ui-monospace, SF Mono, monospace", fontSize: 10, color: "#bbb" }}>Cmd+E</kbd>{" "}
+          to edit.
+        </div>
+        {autoLensChainSteps.map((step, i) => (
+          <div key={`${step.name}-${i}`}>
+            {i > 0 && <StepConnector color="#4CAF50" nextColor="#4CAF50" />}
+            <div style={{
+              padding: "6px 10px",
+              background: "oklch(0.14 0.01 250)",
+              border: "1px solid rgba(76, 175, 80, 0.15)",
+              borderLeft: "3px solid #4CAF5066",
+              borderRadius: 4,
+              fontSize: 12,
+            }}>
+              <span style={{ fontWeight: 600, color: "#ddd" }}>{step.name}</span>
+              <span style={{ color: "#888", fontFamily: "ui-monospace, SF Mono, monospace", fontSize: 11, marginLeft: 8 }}>
+                {step.targetTransform.length > 60
+                  ? step.targetTransform.slice(0, 60) + "…"
+                  : step.targetTransform}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
 
   if (nodes.length === 0) {
     return (

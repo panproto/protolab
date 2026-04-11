@@ -199,7 +199,8 @@ export type WidgetKind =
   | "output_json"
   | "run_button"
   | "lexicon_import"
-  | "lens_chain";
+  | "lens_chain"
+  | "schema_mapping";
 
 /**
  * A single presentation widget. Widgets live in the presentation layer,
@@ -251,8 +252,18 @@ interface CircuitState {
   // Evaluation state
   sourceSchemaHandle: number | null;
   targetSchemaHandle: number | null;
+  autoLensHandle: number | null;
+  autoLensComplementHandle: number | null;
   autoLensStatus: "idle" | "success" | "failed";
   autoLensError: string | null;
+  autoLensChainSteps: Array<{ name: string; sourceTransform: string; targetTransform: string }>;
+  autoLensSchemaMapping: {
+    vertexRemap: Array<[string, string]>;
+    addedVertices: string[];
+    removedVertices: string[];
+    survivingVertices: string[];
+    fieldTransforms: Array<[string, string[]]>;
+  } | null;
   inputDataJson: string;
   outputDataJson: string;
   wireDataMap: Record<string, string>;
@@ -369,8 +380,12 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
   // Evaluation state
   sourceSchemaHandle: null,
   targetSchemaHandle: null,
+  autoLensHandle: null,
+  autoLensComplementHandle: null,
   autoLensStatus: "idle" as const,
   autoLensError: null,
+  autoLensChainSteps: [],
+  autoLensSchemaMapping: null,
   inputDataJson: '{\n  "name": "Alice",\n  "legacyId": 42\n}',
   outputDataJson: "",
   wireDataMap: {},
@@ -701,18 +716,38 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
     const src = get().sourceSchemaHandle;
     const tgt = get().targetSchemaHandle;
     // Only auto-generate when both source AND target are explicitly set.
-    // When target is null, the user's manually built circuit is preserved.
     if (handle === null || src === null || tgt === null) return;
     try {
-      const result = wasm.autoGenerateLens(handle, src, tgt);
-      set({ evaluationError: null, autoLensStatus: "success", autoLensError: null });
+      const result = wasm.autoGenerateAndStore(handle, src, tgt);
+      set({
+        evaluationError: null,
+        autoLensHandle: result.lensHandle,
+        autoLensComplementHandle: null,
+        autoLensStatus: "success",
+        autoLensError: null,
+        autoLensChainSteps: result.chainSteps.map((s) => ({
+          name: s.name,
+          sourceTransform: s.source_transform,
+          targetTransform: s.target_transform,
+        })),
+        autoLensSchemaMapping: {
+          vertexRemap: result.schemaMapping.vertex_remap,
+          addedVertices: result.schemaMapping.added_vertices,
+          removedVertices: result.schemaMapping.removed_vertices,
+          survivingVertices: result.schemaMapping.surviving_vertices,
+          fieldTransforms: result.schemaMapping.field_transforms,
+        },
+      });
       get().applyGraph(result.graph);
     } catch (err) {
-      // Don't write to evaluationError; the user's existing circuit is
-      // still valid. Surface the failure in autoLensStatus so the
-      // LensChainWidget can show a helpful message.
       const msg = String(err).replace(/^Error:\s*/i, "");
-      set({ autoLensStatus: "failed", autoLensError: msg });
+      set({
+        autoLensHandle: null,
+        autoLensStatus: "failed",
+        autoLensError: msg,
+        autoLensChainSteps: [],
+        autoLensSchemaMapping: null,
+      });
       console.warn("Auto-lens generation failed:", err);
     }
   },
@@ -722,14 +757,33 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
   },
 
   runEvaluation() {
-    const handle = get().circuitHandle;
     const json = get().inputDataJson;
+
+    // Auto-lens path: use the native Lens via asymmetric::get.
+    const autoHandle = get().autoLensHandle;
+    if (autoHandle !== null) {
+      try {
+        const result = wasm.evaluateAutoLens(autoHandle, json);
+        set({
+          outputDataJson: result.outputJson,
+          autoLensComplementHandle: result.complementHandle,
+          wireDataMap: {},
+          evaluationError: null,
+        });
+      } catch (err) {
+        set({ evaluationError: String(err) });
+      }
+      return;
+    }
+
+    // Manual circuit path (existing).
+    const handle = get().circuitHandle;
     if (handle === null) {
       set({ evaluationError: "no circuit loaded" });
       return;
     }
     if (get().sourceSchemaHandle === null) {
-      set({ evaluationError: "no source schema assigned — import a schema and assign it as source" });
+      set({ evaluationError: "no source schema assigned; import a schema and assign it as source" });
       return;
     }
     try {

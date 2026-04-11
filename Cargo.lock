@@ -917,6 +917,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d211803b9b6b570f68772237e415a029d5a50c65d382910b879fb19d3271f94d"
 
 [[package]]
+name = "panproto-check"
+version = "0.27.3"
+source = "git+https://github.com/panproto/panproto.git?tag=v0.27.3#8d55ceface4d59752903f996c1ae34935b50cbea"
+dependencies = [
+ "panproto-gat",
+ "panproto-lens",
+ "panproto-mig",
+ "panproto-schema",
+ "rustc-hash",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "panproto-expr"
 version = "0.27.3"
 source = "git+https://github.com/panproto/panproto.git?tag=v0.27.3#8d55ceface4d59752903f996c1ae34935b50cbea"
@@ -1215,6 +1230,7 @@ dependencies = [
 name = "protolab-wasm"
 version = "0.2.2"
 dependencies = [
+ "panproto-check",
  "panproto-expr",
  "panproto-expr-parser",
  "panproto-gat",

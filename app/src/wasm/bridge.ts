@@ -39,7 +39,9 @@ import init, {
   evaluate_expression,
   list_expr_builtins,
   parse_atproto_lexicon as parse_atproto_lexicon_wasm,
-  auto_generate_lens as auto_generate_lens_wasm,
+  auto_generate_and_store as auto_generate_and_store_wasm,
+  evaluate_auto_lens as evaluate_auto_lens_wasm,
+  put_auto_lens as put_auto_lens_wasm,
 } from "./pkg/protolab_wasm.js";
 import { encode, decode } from "@msgpack/msgpack";
 
@@ -249,31 +251,87 @@ export function parseAtprotoLexicon(jsonSource: string): SchemaImportResult {
   return decode(result) as SchemaImportResult;
 }
 
-export interface AutoLensResult {
+// ── Auto-lens (native panproto pipeline) ──────────────────────────
+
+export interface ChainStepDesc {
+  name: string;
+  source_transform: string;
+  target_transform: string;
+}
+
+export interface SchemaMappingDesc {
+  vertex_remap: Array<[string, string]>;
+  added_vertices: string[];
+  removed_vertices: string[];
+  surviving_vertices: string[];
+  field_transforms: Array<[string, string[]]>;
+}
+
+export interface AutoGenerateResult {
+  lens_handle: number;
   alignment_quality: number;
+  chain_steps: ChainStepDesc[];
+  schema_mapping: SchemaMappingDesc;
   graph: Uint8Array;
 }
 
 /**
- * Auto-generate a lens between source and target schemas.
- *
- * Uses panproto's `auto_lens::auto_generate` pipeline: morphism
- * alignment → endofunctor factorization → protolens chain → circuit
- * components. The circuit is cleared and rebuilt with the auto-generated
- * components. Returns the alignment quality score (0.0 to 1.0).
- *
- * If `targetHandle` is null, the source schema is used as the target
- * (identity lens).
+ * Auto-generate a lens between source and target schemas using
+ * panproto's native pipeline (diff → protolens → instantiate → Lens).
+ * Stores the Lens in the WASM slab for direct evaluation AND installs
+ * field-level circuit components so edit mode reflects the auto-lens.
  */
-export function autoGenerateLens(
+export function autoGenerateAndStore(
   circuitHandle: number,
   sourceHandle: number,
   targetHandle: number,
-): { alignmentQuality: number; graph: CircuitGraph } {
-  const result = auto_generate_lens_wasm(circuitHandle, sourceHandle, targetHandle);
-  const parsed = decode(result) as AutoLensResult;
+): { lensHandle: number; quality: number; chainSteps: ChainStepDesc[]; schemaMapping: SchemaMappingDesc; graph: CircuitGraph } {
+  const result = auto_generate_and_store_wasm(circuitHandle, sourceHandle, targetHandle);
+  const parsed = decode(result) as AutoGenerateResult;
   const graph = decode(parsed.graph) as CircuitGraph;
-  return { alignmentQuality: parsed.alignment_quality, graph };
+  return {
+    lensHandle: parsed.lens_handle,
+    quality: parsed.alignment_quality,
+    chainSteps: parsed.chain_steps,
+    schemaMapping: parsed.schema_mapping,
+    graph,
+  };
+}
+
+export interface AutoLensEvalResult {
+  output_json: string;
+  complement_handle: number;
+}
+
+/**
+ * Evaluate an auto-generated lens: forward direction (get).
+ * Applies `asymmetric::get(lens, instance)` directly.
+ */
+export function evaluateAutoLens(
+  lensHandle: number,
+  inputJson: string,
+): { outputJson: string; complementHandle: number } {
+  const result = evaluate_auto_lens_wasm(lensHandle, inputJson);
+  const parsed = decode(result) as AutoLensEvalResult;
+  return { outputJson: parsed.output_json, complementHandle: parsed.complement_handle };
+}
+
+export interface AutoLensPutResult {
+  restored_json: string;
+}
+
+/**
+ * Put an auto-generated lens: backward direction.
+ * Applies `asymmetric::put(lens, modified_view, complement)`.
+ */
+export function putAutoLens(
+  lensHandle: number,
+  modifiedJson: string,
+  complementHandle: number,
+): string {
+  const result = put_auto_lens_wasm(lensHandle, modifiedJson, complementHandle);
+  const parsed = decode(result) as AutoLensPutResult;
+  return parsed.restored_json;
 }
 
 export function importTheory(jsonSource: string): TheoryImportResult {

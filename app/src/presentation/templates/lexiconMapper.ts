@@ -128,6 +128,11 @@ function buildPresentationDoc(): PresentationDoc {
       props: { label: "Target schema (optional; defaults to source)", default_nsid: "", role: "target" },
     },
     {
+      id: "w_schema_mapping",
+      kind: "schema_mapping",
+      props: {},
+    },
+    {
       id: "w_input",
       kind: "input_json",
       props: { label: "Input" },

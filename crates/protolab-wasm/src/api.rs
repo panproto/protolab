@@ -582,49 +582,340 @@ fn parse_atproto_lexicon_inner(json_source: &str) -> Result<Vec<u8>, WasmError> 
         .map_err(|e| WasmError::SerializationFailed(e.to_string()))
 }
 
-/// Auto-generate a lens between a source and target schema.
+/// Auto-generate a lens between source and target schemas, store it in
+/// the slab, AND install field-level circuit components derived from the
+/// compiled migration so edit mode reflects the auto-generated lens.
 ///
-/// Wraps `panproto_lens::auto_lens::auto_generate`. Takes the slab
-/// handles for the source schema, target schema, and the circuit (to
-/// install the auto-generated lens into). Returns a msgpack-encoded
-/// result with the alignment quality score and the circuit graph
-/// updated with the auto-generated components.
-///
-/// If `target_handle` equals `source_handle`, the lens is the identity.
+/// Pipeline:
+/// 1. `panproto_check::diff(src, tgt)` → `DiffSpec`
+/// 2. `diff_to_protolens(spec, src, tgt)` → `ProtolensChain`
+///    (falls back to `auto_generate` for morphism alignment when diff is empty)
+/// 3. `chain.instantiate(src, protocol)` → `Lens`
+/// 4. Store `Lens` as `Resource::AutoLens` in slab
+/// 5. Derive circuit components from `Lens.compiled` (field-level)
+/// 6. Return: `{lens_handle, quality, chain_steps, schema_mapping, graph}`
 #[wasm_bindgen]
-pub fn auto_generate_lens(
+pub fn auto_generate_and_store(
     circuit_handle: u32,
     source_handle: u32,
     target_handle: u32,
 ) -> Result<Vec<u8>, JsError> {
-    auto_generate_lens_inner(circuit_handle, source_handle, target_handle).map_err(Into::into)
+    auto_generate_and_store_inner(circuit_handle, source_handle, target_handle).map_err(Into::into)
 }
 
-fn auto_generate_lens_inner(
+/// Evaluate an auto-generated lens: apply `asymmetric::get` directly.
+/// Returns `{output_json, complement_handle}`.
+#[wasm_bindgen]
+pub fn evaluate_auto_lens(lens_handle: u32, input_json: &str) -> Result<Vec<u8>, JsError> {
+    evaluate_auto_lens_inner(lens_handle, input_json).map_err(Into::into)
+}
+
+/// Backward eval: apply `asymmetric::put` to restore the source.
+/// Returns `{restored_json}`.
+#[wasm_bindgen]
+pub fn put_auto_lens(
+    lens_handle: u32,
+    modified_json: &str,
+    complement_handle: u32,
+) -> Result<Vec<u8>, JsError> {
+    put_auto_lens_inner(lens_handle, modified_json, complement_handle).map_err(Into::into)
+}
+
+fn auto_generate_and_store_inner(
     circuit_handle: u32,
     source_handle: u32,
     target_handle: u32,
 ) -> Result<Vec<u8>, WasmError> {
     use panproto_lens::auto_lens::{AutoLensConfig, auto_generate};
+    use panproto_lens::diff_to_protolens::{DiffSpec, diff_to_protolens};
 
     let source = slab::get_schema(source_handle)?;
     let target = slab::get_schema(target_handle)?;
     let protocol = panproto_protocols_default(&source);
 
-    let config = AutoLensConfig {
-        try_overlap: true,
-        ..Default::default()
+    // ── Step 1: compute protolens chain ────────────────────────────
+    // Primary: diff-based (handles cross-protocol; always succeeds).
+    // Fallback: morphism-alignment (same-protocol; may fail).
+    let schema_diff = panproto_check::diff(&source, &target);
+    let diff_spec = DiffSpec {
+        added_vertices: schema_diff.added_vertices.clone(),
+        removed_vertices: schema_diff.removed_vertices.clone(),
+        kind_changes: schema_diff
+            .kind_changes
+            .iter()
+            .map(|kc| panproto_lens::diff_to_protolens::KindChange {
+                vertex_id: kc.vertex_id.clone(),
+                old_kind: kc.old_kind.clone(),
+                new_kind: kc.new_kind.clone(),
+            })
+            .collect(),
+        added_edges: schema_diff.added_edges.clone(),
+        removed_edges: schema_diff.removed_edges.clone(),
     };
 
-    let result = auto_generate(&source, &target, &protocol, &config)
-        .map_err(|e| WasmError::DeserializationFailed(format!("auto_generate: {e}")))?;
+    let diff_chain = diff_to_protolens(&diff_spec, &source, &target)
+        .map_err(|e| WasmError::DeserializationFailed(format!("diff_to_protolens: {e}")))?;
 
-    // Convert the protolens chain into circuit components and install
-    // them into the circuit. Each elementary protolens becomes a
-    // component vertex with the appropriate type and params.
+    let (chain, quality) = if !diff_chain.steps.is_empty() {
+        (diff_chain, 1.0)
+    } else {
+        let config = AutoLensConfig {
+            try_overlap: true,
+            ..Default::default()
+        };
+        match auto_generate(&source, &target, &protocol, &config) {
+            Ok(result) => (result.chain, result.alignment_quality),
+            Err(_) => (diff_chain, 0.0),
+        }
+    };
+
+    // ── Step 2: instantiate chain → Lens ───────────────────────────
+    let lens = chain
+        .instantiate(&source, &protocol)
+        .map_err(|e| WasmError::DeserializationFailed(format!("instantiate: {e}")))?;
+
+    // ── Step 3: extract schema mapping from CompiledMigration ──────
+    let mapping = extract_schema_mapping(&lens, &source, &target);
+
+    // ── Step 4: extract chain step descriptions ────────────────────
+    let chain_steps: Vec<ChainStepDesc> = chain
+        .steps
+        .iter()
+        .map(|step| ChainStepDesc {
+            name: step.name.to_string(),
+            source_transform: format!("{:?}", step.source.transform),
+            target_transform: format!("{:?}", step.target.transform),
+        })
+        .collect();
+
+    // ── Step 5: derive circuit components from compiled migration ──
+    // This ensures edit mode shows the auto-generated lens as real
+    // circuit components. The field-level effects from the compiled
+    // migration map to protolab's component types.
+    install_field_level_components(circuit_handle, &lens)?;
+
+    // ── Step 6: store the Lens for accurate evaluation ─────────────
+    let lens_handle = slab::alloc(Resource::AutoLens(lens));
+
+    let graph = get_circuit_graph_inner(circuit_handle)?;
+
+    #[derive(Serialize)]
+    struct AutoLensResponse {
+        lens_handle: u32,
+        alignment_quality: f64,
+        chain_steps: Vec<ChainStepDesc>,
+        schema_mapping: SchemaMappingDesc,
+        graph: Vec<u8>,
+    }
+
+    rmp_serde::to_vec_named(&AutoLensResponse {
+        lens_handle,
+        alignment_quality: quality,
+        chain_steps,
+        schema_mapping: mapping,
+        graph,
+    })
+    .map_err(|e| WasmError::SerializationFailed(e.to_string()))
+}
+
+fn evaluate_auto_lens_inner(lens_handle: u32, input_json: &str) -> Result<Vec<u8>, WasmError> {
+    let value: serde_json::Value = serde_json::from_str(input_json)
+        .map_err(|e| WasmError::DeserializationFailed(format!("input JSON: {e}")))?;
+
+    // All lens operations must happen inside with_resource since Lens
+    // doesn't implement Clone.
+    let (output_json, complement) = slab::with_resource(lens_handle, |r| match r {
+        Resource::AutoLens(lens) => {
+            let root = protolab_eval::protolens_for_component::find_root_vertex(&lens.src_schema)
+                .map(|n| n.to_string())
+                .unwrap_or_else(|| "root".into());
+
+            let instance = panproto_inst::parse::parse_json(&lens.src_schema, &root, &value)
+                .map_err(|e| WasmError::DeserializationFailed(format!("parse instance: {e}")))?;
+
+            let (view, complement) = panproto_lens::asymmetric::get(lens, &instance)
+                .map_err(|e| WasmError::DeserializationFailed(format!("lens get: {e}")))?;
+
+            let output_value = panproto_inst::parse::to_json(&lens.tgt_schema, &view);
+            let output_json = serde_json::to_string_pretty(&output_value)
+                .map_err(|e| WasmError::SerializationFailed(e.to_string()))?;
+
+            Ok((output_json, complement))
+        }
+        _ => Err(WasmError::TypeMismatch {
+            expected: "AutoLens",
+            got: "other",
+        }),
+    })??;
+
+    let complement_handle = slab::alloc(Resource::LensComplement(complement));
+
+    #[derive(Serialize)]
+    struct EvalResult {
+        output_json: String,
+        complement_handle: u32,
+    }
+
+    rmp_serde::to_vec_named(&EvalResult {
+        output_json,
+        complement_handle,
+    })
+    .map_err(|e| WasmError::SerializationFailed(e.to_string()))
+}
+
+fn put_auto_lens_inner(
+    lens_handle: u32,
+    modified_json: &str,
+    complement_handle: u32,
+) -> Result<Vec<u8>, WasmError> {
+    let value: serde_json::Value = serde_json::from_str(modified_json)
+        .map_err(|e| WasmError::DeserializationFailed(format!("modified JSON: {e}")))?;
+
+    // Extract the complement first (it implements Clone).
+    let complement = slab::with_resource(complement_handle, |r| match r {
+        Resource::LensComplement(c) => Ok(c.clone()),
+        _ => Err(WasmError::TypeMismatch {
+            expected: "LensComplement",
+            got: "other",
+        }),
+    })??;
+
+    // Do the put inside with_resource since Lens doesn't implement Clone.
+    let restored_json = slab::with_resource(lens_handle, |r| match r {
+        Resource::AutoLens(lens) => {
+            let root = protolab_eval::protolens_for_component::find_root_vertex(&lens.tgt_schema)
+                .map(|n| n.to_string())
+                .unwrap_or_else(|| "root".into());
+
+            let modified_view =
+                panproto_inst::parse::parse_json(&lens.tgt_schema, &root, &value)
+                    .map_err(|e| WasmError::DeserializationFailed(format!("parse view: {e}")))?;
+
+            let restored = panproto_lens::asymmetric::put(lens, &modified_view, &complement)
+                .map_err(|e| WasmError::DeserializationFailed(format!("lens put: {e}")))?;
+
+            let restored_value = panproto_inst::parse::to_json(&lens.src_schema, &restored);
+            serde_json::to_string_pretty(&restored_value)
+                .map_err(|e| WasmError::SerializationFailed(e.to_string()))
+        }
+        _ => Err(WasmError::TypeMismatch {
+            expected: "AutoLens",
+            got: "other",
+        }),
+    })??;
+
+    #[derive(Serialize)]
+    struct PutResult {
+        restored_json: String,
+    }
+
+    rmp_serde::to_vec_named(&PutResult { restored_json })
+        .map_err(|e| WasmError::SerializationFailed(e.to_string()))
+}
+
+// ── Auto-lens helpers ──────────────────────────────────────────────
+
+#[derive(Serialize)]
+struct ChainStepDesc {
+    name: String,
+    source_transform: String,
+    target_transform: String,
+}
+
+#[derive(Serialize)]
+struct SchemaMappingDesc {
+    vertex_remap: Vec<(String, String)>,
+    added_vertices: Vec<String>,
+    removed_vertices: Vec<String>,
+    surviving_vertices: Vec<String>,
+    field_transforms: Vec<(String, Vec<String>)>,
+}
+
+/// Extract a human-readable schema mapping from the compiled migration.
+fn extract_schema_mapping(
+    lens: &panproto_lens::Lens,
+    source: &panproto_schema::Schema,
+    target: &panproto_schema::Schema,
+) -> SchemaMappingDesc {
+    let cm = &lens.compiled;
+
+    let vertex_remap: Vec<(String, String)> = cm
+        .vertex_remap
+        .iter()
+        .map(|(s, t)| (s.to_string(), t.to_string()))
+        .collect();
+
+    let surviving: Vec<String> = cm.surviving_verts.iter().map(|v| v.to_string()).collect();
+
+    let removed: Vec<String> = source
+        .vertices
+        .keys()
+        .filter(|v| !cm.surviving_verts.contains(*v))
+        .map(|v| v.to_string())
+        .collect();
+
+    let remap_targets: std::collections::HashSet<&panproto_gat::Name> =
+        cm.vertex_remap.values().collect();
+    let added: Vec<String> = target
+        .vertices
+        .keys()
+        .filter(|v| !remap_targets.contains(*v) && !cm.surviving_verts.contains(*v))
+        .map(|v| v.to_string())
+        .collect();
+
+    let field_transforms: Vec<(String, Vec<String>)> = cm
+        .field_transforms
+        .iter()
+        .map(|(vertex, transforms)| {
+            let descs: Vec<String> = transforms
+                .iter()
+                .map(|ft| match ft {
+                    panproto_inst::FieldTransform::RenameField { old_key, new_key } => {
+                        format!("rename: {} → {}", old_key, new_key)
+                    }
+                    panproto_inst::FieldTransform::DropField { key } => {
+                        format!("drop: {}", key)
+                    }
+                    panproto_inst::FieldTransform::AddField { key, value } => {
+                        format!("add: {} = {:?}", key, value)
+                    }
+                    panproto_inst::FieldTransform::ApplyExpr { key, .. } => {
+                        format!("apply_expr: {}", key)
+                    }
+                    panproto_inst::FieldTransform::ComputeField { target_key, .. } => {
+                        format!("compute: {}", target_key)
+                    }
+                    other => format!("{:?}", other),
+                })
+                .collect();
+            (vertex.to_string(), descs)
+        })
+        .collect();
+
+    SchemaMappingDesc {
+        vertex_remap,
+        added_vertices: added,
+        removed_vertices: removed,
+        surviving_vertices: surviving,
+        field_transforms,
+    }
+}
+
+/// Install field-level circuit components derived from the compiled
+/// migration's effects. This bridges auto-lens to edit mode: the
+/// theory-level transforms produce a Lens, and the Lens's compiled
+/// migration tells us which fields are renamed, added, dropped, or
+/// transformed at the value level. We install those as real circuit
+/// components so Cmd+E shows them.
+fn install_field_level_components(
+    circuit_handle: u32,
+    lens: &panproto_lens::Lens,
+) -> Result<(), WasmError> {
+    use protolab_schema::mutate::PortSpec;
+
     slab::with_resource_mut(circuit_handle, |r| {
         if let Resource::Circuit(state) = r {
-            // Clear existing components (fresh auto-generation).
+            // Clear existing components.
             let existing_ids: Vec<panproto_gat::Name> = state
                 .schema
                 .vertices
@@ -639,140 +930,127 @@ fn auto_generate_lens_inner(
                 .cloned()
                 .collect();
             for id in existing_ids {
-                mutate::remove_component(&mut state.schema, &id.to_string()).ok();
+                mutate::remove_component(&mut state.schema, id.as_ref()).ok();
             }
 
-            // Install the auto-generated chain as circuit components.
-            install_protolens_chain_as_components(&mut state.schema, &result.chain);
+            let cm = &lens.compiled;
+            let mut comp_idx = 0u32;
+            let mut prev_comp: Option<String> = None;
+            let mut wire_idx = 200u32;
+
+            let default_ports = |comp_id: &str| -> Vec<PortSpec> {
+                vec![
+                    PortSpec {
+                        id: format!("{comp_id}.in"),
+                        direction: protolab_schema::Direction::Input,
+                        trigger: protolab_schema::TriggerMode::Hot,
+                    },
+                    PortSpec {
+                        id: format!("{comp_id}.out"),
+                        direction: protolab_schema::Direction::Output,
+                        trigger: protolab_schema::TriggerMode::Hot,
+                    },
+                    PortSpec {
+                        id: format!("{comp_id}.param"),
+                        direction: protolab_schema::Direction::Parameter,
+                        trigger: protolab_schema::TriggerMode::Cold,
+                    },
+                ]
+            };
+
+            let mut add_comp =
+                |schema: &mut panproto_schema::Schema, comp_type: &str, params: &[(&str, &str)]| {
+                    let comp_id = format!("auto_{comp_idx}");
+                    comp_idx += 1;
+                    let ports = default_ports(&comp_id);
+                    mutate::add_component(schema, &comp_id, comp_type, &ports).ok();
+                    for (k, v) in params {
+                        mutate::update_param(schema, &comp_id, k, v).ok();
+                    }
+                    if let Some(ref prev) = prev_comp {
+                        let wid = format!("aw_{wire_idx}");
+                        wire_idx += 1;
+                        mutate::add_wire(
+                            schema,
+                            &wid,
+                            &format!("{prev}.out"),
+                            &format!("{comp_id}.in"),
+                            Some("lens"),
+                            false,
+                        )
+                        .ok();
+                    }
+                    prev_comp = Some(comp_id);
+                };
+
+            // Edge renames → rename_field components.
+            for (old_edge, new_edge) in &cm.edge_remap {
+                let old_name = old_edge
+                    .name
+                    .as_ref()
+                    .map(|n| n.to_string())
+                    .unwrap_or_default();
+                let new_name = new_edge
+                    .name
+                    .as_ref()
+                    .map(|n| n.to_string())
+                    .unwrap_or_default();
+                if old_name != new_name && !old_name.is_empty() && !new_name.is_empty() {
+                    add_comp(
+                        &mut state.schema,
+                        "rename_field",
+                        &[("old_name", &old_name), ("new_name", &new_name)],
+                    );
+                }
+            }
+
+            // Field transforms → corresponding component types.
+            for transforms in cm.field_transforms.values() {
+                for ft in transforms {
+                    match ft {
+                        panproto_inst::FieldTransform::RenameField { old_key, new_key } => {
+                            add_comp(
+                                &mut state.schema,
+                                "rename_field",
+                                &[("old_name", old_key), ("new_name", new_key)],
+                            );
+                        }
+                        panproto_inst::FieldTransform::DropField { key } => {
+                            add_comp(&mut state.schema, "drop_field", &[("field_name", key)]);
+                        }
+                        panproto_inst::FieldTransform::AddField { key, value } => {
+                            let val_str = format!("{value:?}");
+                            add_comp(
+                                &mut state.schema,
+                                "add_field",
+                                &[
+                                    ("field_name", key),
+                                    ("field_kind", "string"),
+                                    ("default", &val_str),
+                                ],
+                            );
+                        }
+                        panproto_inst::FieldTransform::ApplyExpr { key, .. } => {
+                            add_comp(&mut state.schema, "apply_expr", &[("field", key)]);
+                        }
+                        panproto_inst::FieldTransform::ComputeField { target_key, .. } => {
+                            add_comp(
+                                &mut state.schema,
+                                "compute_field",
+                                &[("target", target_key)],
+                            );
+                        }
+                        _ => {
+                            // Other transform types don't have a direct
+                            // component equivalent; skip for now.
+                        }
+                    }
+                }
+            }
         }
     })?;
 
-    let graph = get_circuit_graph_inner(circuit_handle)?;
-
-    #[derive(Serialize)]
-    struct AutoLensResponse {
-        alignment_quality: f64,
-        graph: Vec<u8>,
-    }
-
-    rmp_serde::to_vec_named(&AutoLensResponse {
-        alignment_quality: result.alignment_quality,
-        graph,
-    })
-    .map_err(|e| WasmError::SerializationFailed(e.to_string()))
-}
-
-/// Convert a protolens chain's elementary steps into circuit components.
-fn install_protolens_chain_as_components(
-    schema: &mut panproto_schema::Schema,
-    chain: &panproto_lens::protolens::ProtolensChain,
-) {
-    use protolab_schema::mutate::PortSpec;
-
-    let default_ports = vec![
-        PortSpec {
-            id: String::new(), // filled per component
-            direction: protolab_schema::Direction::Input,
-            trigger: protolab_schema::TriggerMode::Hot,
-        },
-        PortSpec {
-            id: String::new(),
-            direction: protolab_schema::Direction::Output,
-            trigger: protolab_schema::TriggerMode::Hot,
-        },
-        PortSpec {
-            id: String::new(),
-            direction: protolab_schema::Direction::Parameter,
-            trigger: protolab_schema::TriggerMode::Cold,
-        },
-    ];
-
-    let mut prev_comp_id: Option<String> = None;
-    let mut wire_idx = 200;
-
-    for (i, step) in chain.steps.iter().enumerate() {
-        let comp_id = format!("auto_{i}");
-        let (comp_type, params) = classify_step(&step.target.transform);
-
-        let ports: Vec<PortSpec> = default_ports
-            .iter()
-            .enumerate()
-            .map(|(pi, p)| {
-                let suffix = match pi {
-                    0 => "in",
-                    1 => "out",
-                    _ => "param",
-                };
-                PortSpec {
-                    id: format!("{comp_id}.{suffix}"),
-                    direction: p.direction,
-                    trigger: p.trigger,
-                }
-            })
-            .collect();
-
-        mutate::add_component(schema, &comp_id, &comp_type, &ports).ok();
-        for (key, value) in &params {
-            mutate::update_param(schema, &comp_id, key, value).ok();
-        }
-
-        // Wire to the previous component.
-        if let Some(ref prev) = prev_comp_id {
-            let wire_id = format!("aw_{wire_idx}");
-            wire_idx += 1;
-            mutate::add_wire(
-                schema,
-                &wire_id,
-                &format!("{prev}.out"),
-                &format!("{comp_id}.in"),
-                Some("lens"),
-                false,
-            )
-            .ok();
-        }
-
-        prev_comp_id = Some(comp_id);
-    }
-}
-
-/// Map a protolens Transform variant to a component type + params.
-fn classify_step(
-    transform: &panproto_gat::TheoryTransform,
-) -> (String, Vec<(String, String)>) {
-    use panproto_gat::TheoryTransform;
-    match transform {
-        TheoryTransform::RenameEdgeName {
-            old_name, new_name, ..
-        } => (
-            "rename_field".into(),
-            vec![
-                ("old_name".into(), old_name.to_string()),
-                ("new_name".into(), new_name.to_string()),
-            ],
-        ),
-        TheoryTransform::AddSort { sort, .. } => (
-            "add_field".into(),
-            vec![
-                ("field_name".into(), sort.name.to_string()),
-                ("field_kind".into(), "string".into()),
-                ("default".into(), String::new()),
-            ],
-        ),
-        TheoryTransform::DropSort(name) => (
-            "drop_field".into(),
-            vec![("field_name".into(), name.to_string())],
-        ),
-        _ => {
-            // Fallback: unknown transform type rendered as a comment.
-            (
-                "rename_field".into(),
-                vec![
-                    ("old_name".into(), format!("{transform:?}")),
-                    ("new_name".into(), String::new()),
-                ],
-            )
-        }
-    }
+    Ok(())
 }
 
 /// Import a theory definition from JSON. Returns summary msgpack.

@@ -34,6 +34,12 @@ pub enum Resource {
     /// A theory morphism. Reserved for the Colimit composer's output
     /// handle plumbing; not currently surfaced as a distinct WASM entry.
     Morphism(TheoryMorphism),
+    /// An auto-generated lens (stored for direct evaluation via
+    /// `asymmetric::get`/`put` without circuit decomposition).
+    AutoLens(Lens),
+    /// A complement from a `get` operation, stored so `put` can restore
+    /// the original source instance.
+    LensComplement(Complement),
 }
 
 /// Circuit + its associated evaluation state.
