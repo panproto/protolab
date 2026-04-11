@@ -50,7 +50,7 @@ const DEFAULT_NSID = "app.bsky.feed.post";
 
 const CANONICAL_POST = {
   text: "Just shipped a bidirectional schema mapper that translates between atproto lexicons using panproto's protolens pipeline. Rename fields, compute derived values, add defaults; the lens runs both ways so you can edit the output and recover the original. Try it at panproto.dev/protolab",
-  createdAt: "2026-04-10T14:30:00.000Z",
+  createdAt: "2026-04-11T14:30:00.000Z",
   langs: ["en"],
   tags: ["panproto", "atproto", "schemas"],
 };
