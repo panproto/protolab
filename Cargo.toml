@@ -14,21 +14,21 @@ license = "MIT"
 repository = "https://github.com/panproto/protolab"
 
 [workspace.dependencies]
-# panproto v0.27.3 (includes the nest_field combinator fix panproto#23
-# AND the wtype_restrict node-synthesis fix for nest_field forward eval,
-# panproto#24).
-panproto-schema = { git = "https://github.com/panproto/panproto.git", tag = "v0.27.3" }
-panproto-gat = { git = "https://github.com/panproto/panproto.git", tag = "v0.27.3" }
-panproto-lens = { git = "https://github.com/panproto/panproto.git", tag = "v0.27.3" }
-panproto-lens-dsl = { git = "https://github.com/panproto/panproto.git", tag = "v0.27.3" }
-panproto-protocols = { git = "https://github.com/panproto/panproto.git", tag = "v0.27.3" }
-panproto-inst = { git = "https://github.com/panproto/panproto.git", tag = "v0.27.3" }
-panproto-check = { git = "https://github.com/panproto/panproto.git", tag = "v0.27.3" }
-panproto-mig = { git = "https://github.com/panproto/panproto.git", tag = "v0.27.3" }
-panproto-expr = { git = "https://github.com/panproto/panproto.git", tag = "v0.27.3" }
-panproto-expr-parser = { git = "https://github.com/panproto/panproto.git", tag = "v0.27.3" }
-panproto-core = { git = "https://github.com/panproto/panproto.git", tag = "v0.27.3" }
-panproto-theory-dsl = { git = "https://github.com/panproto/panproto.git", tag = "v0.27.3" }
+# panproto v0.28.0: fixes array round-trip (panproto#27), adds Value::List,
+# generic is_list_vertex detection, incremental git import, XRPC query
+# endpoints, and comprehensive documentation rewrite.
+panproto-schema = { git = "https://github.com/panproto/panproto.git", tag = "v0.28.0" }
+panproto-gat = { git = "https://github.com/panproto/panproto.git", tag = "v0.28.0" }
+panproto-lens = { git = "https://github.com/panproto/panproto.git", tag = "v0.28.0" }
+panproto-lens-dsl = { git = "https://github.com/panproto/panproto.git", tag = "v0.28.0" }
+panproto-protocols = { git = "https://github.com/panproto/panproto.git", tag = "v0.28.0" }
+panproto-inst = { git = "https://github.com/panproto/panproto.git", tag = "v0.28.0" }
+panproto-check = { git = "https://github.com/panproto/panproto.git", tag = "v0.28.0" }
+panproto-mig = { git = "https://github.com/panproto/panproto.git", tag = "v0.28.0" }
+panproto-expr = { git = "https://github.com/panproto/panproto.git", tag = "v0.28.0" }
+panproto-expr-parser = { git = "https://github.com/panproto/panproto.git", tag = "v0.28.0" }
+panproto-core = { git = "https://github.com/panproto/panproto.git", tag = "v0.28.0" }
+panproto-theory-dsl = { git = "https://github.com/panproto/panproto.git", tag = "v0.28.0" }
 
 # Internal crates
 protolab-schema = { path = "crates/protolab-schema" }
