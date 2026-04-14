@@ -387,20 +387,20 @@ describe("RunButtonWidget", () => {
     expect(document.querySelector('[data-widget="run_button"]')).not.toBeNull();
   });
 
-  it("clicking with no circuit handle sets evaluationError", () => {
-    resetStore({ circuitHandle: null });
+  it("renders disabled with no source schema (data-ready=false)", () => {
+    resetStore({ circuitHandle: null, sourceSchemaHandle: null });
     const w = makeWidget({ kind: "run_button", props: { label: "Run" } });
     render(<RunButtonWidget widget={w} />);
-    fireEvent.click(screen.getByRole("button"));
-    expect(useCircuitStore.getState().evaluationError).toBeTruthy();
+    const btn = screen.getByRole("button");
+    expect(btn).toBeDisabled();
+    expect(btn.getAttribute("data-ready")).toBe("false");
   });
 
-  it("clicking with no source schema sets evaluationError", () => {
+  it("renders disabled with circuit but no source schema", () => {
     resetStore({ circuitHandle: 1, sourceSchemaHandle: null });
     const w = makeWidget({ kind: "run_button", props: { label: "Run" } });
     render(<RunButtonWidget widget={w} />);
-    fireEvent.click(screen.getByRole("button"));
-    expect(useCircuitStore.getState().evaluationError).toBeTruthy();
+    expect(screen.getByRole("button")).toBeDisabled();
   });
 
   it("clicking with valid circuit and schema populates outputDataJson", () => {

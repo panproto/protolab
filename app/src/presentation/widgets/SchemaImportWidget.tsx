@@ -263,6 +263,7 @@ export function SchemaImportForm({
     <div
       ref={containerRef}
       data-widget="schema_import"
+      data-role={role}
       style={{
         display: "flex",
         flexDirection: "column",

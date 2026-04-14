@@ -95,7 +95,7 @@ test.describe("empty presentation mode", () => {
     await expect(
       page.getByText(/Nothing to show in presentation mode/),
     ).toBeVisible();
-    await page.getByRole("button", { name: /Edit circuit/ }).click();
+    await page.getByTestId("empty-presentation-edit-link").click();
     await expect(page.locator('[data-mode="edit"]')).toBeVisible();
   });
 });
@@ -111,8 +111,15 @@ base.describe("lexicon mapper run", () => {
       timeout: 15_000,
     });
 
-    // Click Run. The lens auto-resolved the lexicon on template load.
-    await page.locator('[data-widget="run_button"]').click();
+    // The Lexicon Mapper resolves its source schema asynchronously
+    // from lexicon.garden. The Run button stays disabled until that
+    // completes; wait on the `data-ready` attribute rather than a
+    // fixed sleep.
+    const runBtn = page.locator('[data-widget="run_button"]');
+    await expect(runBtn).toHaveAttribute("data-ready", "true", {
+      timeout: 20_000,
+    });
+    await runBtn.click();
 
     // The 4-step lens: rename text→body, rename createdAt→timestamp,
     // compute charCount=len(body), add source="bluesky".
@@ -134,16 +141,20 @@ base.describe("lexicon mapper run", () => {
       '{\n  "text": "Testing 123",\n  "createdAt": "2026-04-10T00:00:00.000Z"\n}',
     );
 
-    await page.locator('[data-widget="run_button"]').click();
+    const runBtn = page.locator('[data-widget="run_button"]');
+    await expect(runBtn).toHaveAttribute("data-ready", "true", {
+      timeout: 20_000,
+    });
+    await runBtn.click();
     const output = page.locator('[data-widget="output_json"]');
     await expect(output).toContainText("Testing 123", { timeout: 10_000 });
     await expect(output).toContainText("2026-04-10");
   });
 });
 
-// ── Lexicon import widget ──────────────────────────────────────────
+// ── Schema import widget ───────────────────────────────────────────
 
-base.describe("lexicon import widget", () => {
+base.describe("schema import widget", () => {
   base("resolves a different NSID and updates source schema", async ({
     page,
   }) => {
@@ -152,18 +163,30 @@ base.describe("lexicon import widget", () => {
       timeout: 15_000,
     });
 
-    // Change the NSID and resolve a different lexicon.
-    const nsidInput = page.locator('[data-widget="lexicon_import"] input[type="text"]');
-    await nsidInput.fill("app.bsky.actor.profile");
-    await page
-      .locator('[data-widget="lexicon_import"] button')
-      .filter({ hasText: "Resolve" })
-      .click();
+    // The Lexicon Mapper template renders two SchemaImportWidget
+    // instances (source + target) tagged with `data-role`. Wait for the
+    // source widget to finish auto-resolving its default NSID before
+    // we click Change — otherwise the widget is in mid-fetch and the
+    // "Change" button doesn't exist yet.
+    const source = page
+      .locator('[data-widget="schema_import"][data-role="source"]')
+      .first();
+    await source.waitFor({ state: "visible", timeout: 15_000 });
+    await expect(source.getByRole("button", { name: "Change" })).toBeVisible({
+      timeout: 20_000,
+    });
+    await source.getByRole("button", { name: "Change" }).click();
 
-    // Should show a success status message.
-    await expect(
-      page.locator('[data-widget="lexicon_import"]').getByText(/imported/),
-    ).toBeVisible({ timeout: 10_000 });
+    const nsidInput = source.locator('input[aria-label="Lexicon NSID"]');
+    await nsidInput.waitFor({ state: "visible" });
+    await nsidInput.fill("app.bsky.actor.profile");
+    await source.getByRole("button", { name: "Resolve" }).click();
+
+    // Success: form re-collapses to the assigned-banner with the new
+    // NSID visible inside.
+    await expect(source).toContainText("app.bsky.actor.profile", {
+      timeout: 20_000,
+    });
   });
 });
 

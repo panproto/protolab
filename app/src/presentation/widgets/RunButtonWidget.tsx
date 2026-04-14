@@ -9,21 +9,32 @@ import { getProp } from "./widgetHelpers";
 export function RunButtonWidget({ widget }: WidgetProps) {
   const label = getProp(widget, "label", "Run");
   const runEvaluation = useCircuitStore((s) => s.runEvaluation);
+  // Disable until the source schema is assigned. The Lexicon Mapper
+  // template resolves it asynchronously from lexicon.garden, so an
+  // eager click would otherwise race the fetch and produce a
+  // "no source schema assigned" error.
+  const sourceReady = useCircuitStore((s) => s.sourceSchemaHandle !== null);
 
   return (
     <button
       data-widget="run_button"
+      data-ready={sourceReady ? "true" : "false"}
       onClick={runEvaluation}
-      title="Run the lens forward on the input data and show the output"
+      disabled={!sourceReady}
+      title={
+        sourceReady
+          ? "Run the lens forward on the input data and show the output"
+          : "Waiting for source schema to resolve…"
+      }
       style={{
         padding: "12px 24px",
-        background: "#FF9800",
-        color: "#1a1a1a",
+        background: sourceReady ? "#FF9800" : "oklch(0.3 0.01 250)",
+        color: sourceReady ? "#1a1a1a" : "#888",
         border: "none",
         borderRadius: 6,
         fontSize: 14,
         fontWeight: 700,
-        cursor: "pointer",
+        cursor: sourceReady ? "pointer" : "wait",
         textTransform: "uppercase",
         letterSpacing: "0.05em",
       }}

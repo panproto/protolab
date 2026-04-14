@@ -84,6 +84,7 @@ function EmptyState() {
       </div>
       <button
         onClick={() => setMode("edit")}
+        data-testid="empty-presentation-edit-link"
         style={{
           marginTop: 12,
           padding: "8px 16px",

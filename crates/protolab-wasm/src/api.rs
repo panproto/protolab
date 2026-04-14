@@ -1042,8 +1042,11 @@ fn auto_generate_and_store_inner(
     // ── Step 5: derive circuit components from compiled migration ──
     // This ensures edit mode shows the auto-generated lens as real
     // circuit components. The field-level effects from the compiled
-    // migration map to protolab's component types.
-    install_field_level_components(circuit_handle, &lens)?;
+    // migration map to protolab's component types; when the diff is
+    // purely theory-level (no field renames/drops/adds), we fall back
+    // to one `chain_step` component per protolens step so the user
+    // still has an editable canvas.
+    install_field_level_components(circuit_handle, &lens, &chain)?;
 
     // ── Step 6: store the Lens for accurate evaluation ─────────────
     let lens_handle = slab::alloc(Resource::AutoLens(lens));
@@ -1164,6 +1167,61 @@ fn put_auto_lens_inner(
         .map_err(|e| WasmError::SerializationFailed(e.to_string()))
 }
 
+/// Validate a JSON data value against a schema (typically the target
+/// schema for lens output). Returns a msgpack `{valid: bool, errors:
+/// [string]}` payload. Errors are rendered via their `Display` impl so
+/// the caller can surface them as human-readable messages in the UI.
+#[wasm_bindgen]
+pub fn validate_data_against_schema(
+    schema_handle: u32,
+    data_json: &str,
+) -> Result<Vec<u8>, JsError> {
+    validate_data_against_schema_inner(schema_handle, data_json).map_err(Into::into)
+}
+
+fn validate_data_against_schema_inner(
+    schema_handle: u32,
+    data_json: &str,
+) -> Result<Vec<u8>, WasmError> {
+    #[derive(Serialize)]
+    struct ValidationResult {
+        valid: bool,
+        errors: Vec<String>,
+    }
+
+    let schema = slab::get_schema(schema_handle)?;
+
+    let value: serde_json::Value = match serde_json::from_str(data_json) {
+        Ok(v) => v,
+        Err(e) => {
+            let result = ValidationResult {
+                valid: false,
+                errors: vec![format!("invalid JSON: {e}")],
+            };
+            return rmp_serde::to_vec_named(&result)
+                .map_err(|e| WasmError::SerializationFailed(e.to_string()));
+        }
+    };
+
+    let root = protolab_eval::protolens_for_component::find_root_vertex(&schema)
+        .map(|n| n.to_string())
+        .unwrap_or_else(|| "root".into());
+
+    let errors = match panproto_inst::parse::parse_json(&schema, &root, &value) {
+        Ok(instance) => panproto_inst::validate::validate_wtype(&schema, &instance)
+            .into_iter()
+            .map(|e| e.to_string())
+            .collect::<Vec<_>>(),
+        Err(e) => vec![format!("parse: {e}")],
+    };
+
+    let result = ValidationResult {
+        valid: errors.is_empty(),
+        errors,
+    };
+    rmp_serde::to_vec_named(&result).map_err(|e| WasmError::SerializationFailed(e.to_string()))
+}
+
 // ── Auto-lens helpers ──────────────────────────────────────────────
 
 #[derive(Serialize)]
@@ -1261,6 +1319,7 @@ fn extract_schema_mapping(
 fn install_field_level_components(
     circuit_handle: u32,
     lens: &panproto_lens::Lens,
+    chain: &panproto_lens::protolens::ProtolensChain,
 ) -> Result<(), WasmError> {
     use protolab_schema::mutate::PortSpec;
 
@@ -1309,6 +1368,11 @@ fn install_field_level_components(
                 ]
             };
 
+            // Borrow scope for the field-level pass: `add_comp` captures
+            // `comp_idx`/`wire_idx`/`prev_comp` mutably, so we drop it at
+            // the end of this block before reading `comp_idx` below to
+            // decide whether to fire the chain-step fallback.
+            {
             let mut add_comp =
                 |schema: &mut panproto_schema::Schema, comp_type: &str, params: &[(&str, &str)]| {
                     let comp_id = format!("auto_{comp_idx}");
@@ -1396,6 +1460,52 @@ fn install_field_level_components(
                             // component equivalent; skip for now.
                         }
                     }
+                }
+            }
+            } // drop `add_comp` closure → release borrow of comp_idx
+
+            // Fallback: if the compiled migration produced no field-level
+            // components (e.g. cross-protocol diffs where every step is a
+            // theory-level sort/op rewrite), render each protolens step as
+            // a `chain_step` component so the user still gets an editable
+            // circuit on canvas instead of a blank panel.
+            if comp_idx == 0 && !chain.steps.is_empty() {
+                let mut add_comp =
+                    |schema: &mut panproto_schema::Schema, comp_type: &str, params: &[(&str, &str)]| {
+                        let comp_id = format!("auto_{comp_idx}");
+                        comp_idx += 1;
+                        let ports = default_ports(&comp_id);
+                        mutate::add_component(schema, &comp_id, comp_type, &ports).ok();
+                        for (k, v) in params {
+                            mutate::update_param(schema, &comp_id, k, v).ok();
+                        }
+                        if let Some(ref prev) = prev_comp {
+                            let wid = format!("aw_{wire_idx}");
+                            wire_idx += 1;
+                            mutate::add_wire(
+                                schema,
+                                &wid,
+                                &format!("{prev}.out"),
+                                &format!("{comp_id}.in"),
+                                Some("lens"),
+                                false,
+                            )
+                            .ok();
+                        }
+                        prev_comp = Some(comp_id);
+                    };
+                for step in &chain.steps {
+                    let src_desc = format!("{:?}", step.source.transform);
+                    let tgt_desc = format!("{:?}", step.target.transform);
+                    add_comp(
+                        &mut state.schema,
+                        "chain_step",
+                        &[
+                            ("step_name", step.name.as_ref()),
+                            ("source_transform", src_desc.as_str()),
+                            ("target_transform", tgt_desc.as_str()),
+                        ],
+                    );
                 }
             }
         }

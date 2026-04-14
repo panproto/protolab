@@ -271,6 +271,13 @@ interface CircuitState {
   evaluationError: string | null;
   selectedWireId: string | null;
 
+  /**
+   * Result of validating `outputDataJson` against the target schema.
+   * Null when no validation has run (no target, no output). Refreshed
+   * on every `runEvaluation`.
+   */
+  outputValidation: { valid: boolean; errors: string[] } | null;
+
   // Init
   initDemo(): Promise<void>;
 
@@ -322,6 +329,25 @@ interface CircuitState {
 
 let nextComponentId = 0;
 let nextWireId = 100;
+
+/**
+ * Run target-schema validation on the latest output JSON. Returns null
+ * when there's no target assigned (nothing to validate against) or the
+ * output is empty. Caught errors are converted to a non-valid result
+ * rather than thrown so Run always leaves the UI in a consistent state.
+ */
+function validateOutput(
+  targetHandle: number | null,
+  outputJson: string,
+): { valid: boolean; errors: string[] } | null {
+  if (targetHandle === null) return null;
+  if (!outputJson || outputJson.trim() === "") return null;
+  try {
+    return wasm.validateDataAgainstSchema(targetHandle, outputJson);
+  } catch (err) {
+    return { valid: false, errors: [String(err)] };
+  }
+}
 
 function graphToReactFlow(graph: CircuitGraph): { nodes: Node[]; edges: Edge[] } {
   const nodes: Node[] = graph.nodes.map((n: GraphNode) => {
@@ -392,6 +418,7 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
   wireDataMap: {},
   evaluationError: null,
   selectedWireId: null,
+  outputValidation: null,
 
   async initDemo() {
     try {
@@ -771,9 +798,10 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
           autoLensComplementHandle: result.complementHandle,
           wireDataMap: {},
           evaluationError: null,
+          outputValidation: validateOutput(get().targetSchemaHandle, result.outputJson),
         });
       } catch (err) {
-        set({ evaluationError: String(err) });
+        set({ evaluationError: String(err), outputValidation: null });
       }
       return;
     }
@@ -795,9 +823,10 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
         outputDataJson: result.output,
         wireDataMap: result.wire_data,
         evaluationError: null,
+        outputValidation: validateOutput(get().targetSchemaHandle, result.output),
       });
     } catch (err) {
-      set({ evaluationError: String(err) });
+      set({ evaluationError: String(err), outputValidation: null });
     }
   },
 
@@ -869,3 +898,10 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
     set({ error });
   },
 }));
+
+// Expose the store on `window` for Playwright e2e tests so they can
+// drive the circuit without simulating fragile drag/drop sequences.
+if (typeof window !== "undefined") {
+  (window as unknown as { __protolabStore?: typeof useCircuitStore }).__protolabStore =
+    useCircuitStore;
+}

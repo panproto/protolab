@@ -55,7 +55,7 @@ test.describe("node inspector", () => {
     const bangPanel = page.locator("pre").filter({ hasText: /"displayName"/ });
     await expect(bangPanel).toBeVisible();
     // After rename only, `legacyId` is still present (not yet dropped).
-    await expect(bangPanel).toContainText(/"legacyId"\s*:\s*42/);
+    await expect(bangPanel).toContainText(/"legacyId"\s*:\s*7042/);
     await expect(bangPanel).toContainText(/"displayName"\s*:\s*"Alice Chen"/);
   });
 });

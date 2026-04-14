@@ -44,6 +44,7 @@ import init, {
   auto_generate_and_store as auto_generate_and_store_wasm,
   evaluate_auto_lens as evaluate_auto_lens_wasm,
   put_auto_lens as put_auto_lens_wasm,
+  validate_data_against_schema as validate_data_against_schema_wasm,
 } from "./pkg/protolab_wasm.js";
 import { encode, decode } from "@msgpack/msgpack";
 
@@ -345,6 +346,24 @@ export function evaluateAutoLens(
 
 export interface AutoLensPutResult {
   restored_json: string;
+}
+
+export interface ValidationResult {
+  valid: boolean;
+  errors: string[];
+}
+
+/**
+ * Validate a JSON data value against a schema. Returns `{valid, errors}`
+ * where `errors` is a list of human-readable strings (empty when valid).
+ * Used to check that lens output conforms to the target schema.
+ */
+export function validateDataAgainstSchema(
+  schemaHandle: number,
+  dataJson: string,
+): ValidationResult {
+  const result = validate_data_against_schema_wasm(schemaHandle, dataJson);
+  return decode(result) as ValidationResult;
 }
 
 /**

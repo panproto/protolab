@@ -21,7 +21,7 @@ export default defineConfig({
     // Match the `base: "/"` from `vite.config.ts` in dev mode. Vite binds
     // to `localhost` (ipv6 `::1`) by default, so using `localhost` here
     // avoids a 127.0.0.1/::1 mismatch when Playwright probes the server.
-    baseURL: "http://localhost:3000",
+    baseURL: "http://localhost:5180",
     trace: "on-first-retry",
     screenshot: "only-on-failure",
   },
@@ -32,8 +32,8 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "npm run dev -- --port 3000",
-    url: "http://localhost:3000",
+    command: "npm run dev -- --port 5180",
+    url: "http://localhost:5180",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
     // The Vite dev server needs the WASM pkg to be built. Playwright runs

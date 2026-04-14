@@ -3,6 +3,7 @@
  * for the currently-selected wire.
  */
 
+import { useState } from "react";
 import { useCircuitStore } from "../store/circuitStore";
 
 export function DataPanel() {
@@ -16,7 +17,9 @@ export function DataPanel() {
     runEvaluation,
     applyModifiedOutput,
     sourceSchemaHandle,
+    outputValidation,
   } = useCircuitStore();
+  const [showValidationDetails, setShowValidationDetails] = useState(false);
 
   const wireData = selectedWireId ? wireDataMap[selectedWireId] : null;
 
@@ -87,6 +90,7 @@ export function DataPanel() {
           </button>
         </div>
         <textarea
+          data-testid="data-panel-input"
           value={inputDataJson}
           onChange={(e) => setInputData(e.target.value)}
           style={textareaStyle}
@@ -100,6 +104,7 @@ export function DataPanel() {
           <span>{selectedWireId ? `Wire: ${selectedWireId}` : "Wire (click an edge)"}</span>
         </div>
         <textarea
+          data-testid="data-panel-wire"
           value={wireData ?? (selectedWireId ? "(no data — run evaluation)" : "(select a wire to inspect)")}
           readOnly
           style={{ ...textareaStyle, color: wireData ? "#ddd" : "#666" }}
@@ -108,9 +113,36 @@ export function DataPanel() {
       </div>
 
       {/* Output */}
-      <div style={sectionStyle}>
+      <div style={{ ...sectionStyle, position: "relative" }}>
         <div style={headerStyle}>
           <span>Output</span>
+          {outputValidation && (
+            <button
+              onClick={() => setShowValidationDetails((v) => !v)}
+              title={
+                outputValidation.valid
+                  ? "Output conforms to target schema"
+                  : `${outputValidation.errors.length} validation error(s) — click for details`
+              }
+              data-testid="output-validation-badge"
+              data-valid={outputValidation.valid ? "true" : "false"}
+              style={{
+                padding: "1px 6px",
+                borderRadius: 3,
+                border: "none",
+                fontSize: 9,
+                fontWeight: 700,
+                letterSpacing: "0.05em",
+                cursor: outputValidation.valid ? "default" : "pointer",
+                background: outputValidation.valid ? "#1B5E20" : "#B71C1C",
+                color: "#fff",
+              }}
+            >
+              {outputValidation.valid
+                ? "✓ VALID"
+                : `✗ ${outputValidation.errors.length} ERR`}
+            </button>
+          )}
           <button
             style={buttonStyle}
             onClick={() => applyModifiedOutput(outputDataJson)}
@@ -120,11 +152,44 @@ export function DataPanel() {
           </button>
         </div>
         <textarea
+          data-testid="data-panel-output"
           value={outputDataJson || "(run evaluation to see output)"}
           onChange={(e) => useCircuitStore.setState({ outputDataJson: e.target.value })}
           style={{ ...textareaStyle, color: outputDataJson ? "#ddd" : "#666" }}
           spellCheck={false}
         />
+        {outputValidation && !outputValidation.valid && showValidationDetails && (
+          <div
+            data-testid="output-validation-details"
+            style={{
+              position: "absolute",
+              top: 28,
+              left: 8,
+              right: 8,
+              maxHeight: 140,
+              overflowY: "auto",
+              background: "oklch(0.14 0.02 25)",
+              border: "1px solid #B71C1C",
+              borderRadius: 4,
+              padding: 8,
+              zIndex: 50,
+              fontSize: 10,
+              color: "#F8BBD0",
+              boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+            }}
+          >
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>
+              Output does not conform to target schema:
+            </div>
+            <ul style={{ margin: 0, paddingLeft: 16 }}>
+              {outputValidation.errors.map((e, i) => (
+                <li key={i} style={{ marginBottom: 2 }}>
+                  {e}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
 
       {evaluationError && (
