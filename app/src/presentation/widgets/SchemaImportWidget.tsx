@@ -22,11 +22,38 @@ import { fetchLexiconAutocomplete, type LexiconSuggestion } from "../lexiconGard
  * which schema handle to assign in the store.
  */
 export function SchemaImportWidget({ widget }: WidgetProps) {
-  const label = getProp(widget, "label", "Schema");
-  const role = getProp(widget, "role", "source");
-  const defaultProtocol = getProp(widget, "default_protocol", "atproto");
-  const defaultNsid = getProp(widget, "default_nsid", "");
+  return (
+    <SchemaImportForm
+      label={getProp(widget, "label", "Schema")}
+      role={(getProp(widget, "role", "source") as "source" | "target")}
+      defaultProtocol={getProp(widget, "default_protocol", "atproto")}
+      defaultNsid={getProp(widget, "default_nsid", "")}
+    />
+  );
+}
 
+export interface SchemaImportFormProps {
+  label: string;
+  role: "source" | "target";
+  defaultProtocol?: string;
+  defaultNsid?: string;
+  /** When true, render a tighter layout suitable for the edit-mode Inspector. */
+  compact?: boolean;
+}
+
+/**
+ * Standalone schema-import form — usable both as a presentation widget
+ * body and inline in the edit-mode Inspector. Rehydrates from the
+ * store's `sourceSchemaHandle`/`targetSchemaHandle` so a previously
+ * assigned schema remains visible across mode switches.
+ */
+export function SchemaImportForm({
+  label,
+  role,
+  defaultProtocol = "atproto",
+  defaultNsid = "",
+  compact = false,
+}: SchemaImportFormProps) {
   const [protocols, setProtocols] = useState<ProtocolMeta[]>([]);
   const [selectedProtocol, setSelectedProtocol] = useState(defaultProtocol);
   const [input, setInput] = useState("");
@@ -44,6 +71,17 @@ export function SchemaImportWidget({ widget }: WidgetProps) {
   const assignSourceSchema = useCircuitStore((s) => s.assignSourceSchema);
   const assignTargetSchema = useCircuitStore((s) => s.assignTargetSchema);
   const setInputData = useCircuitStore((s) => s.setInputData);
+
+  // Rehydration: look up the schema currently assigned to this role so
+  // the user can see their work persisted across mode switches.
+  const assignedHandle = useCircuitStore((s) =>
+    role === "target" ? s.targetSchemaHandle : s.sourceSchemaHandle,
+  );
+  const assignedSchema = useCircuitStore((s) =>
+    assignedHandle === null
+      ? null
+      : s.importedSchemas.find((x) => x.handle === assignedHandle) ?? null,
+  );
 
   // Load protocol list on mount.
   useEffect(() => {
@@ -94,13 +132,13 @@ export function SchemaImportWidget({ widget }: WidgetProps) {
   const inputFormat = selectedMeta?.input_format ?? "json";
   const isAtproto = selectedProtocol === "atproto";
 
-  const installSchema = (result: wasm.SchemaImportResult, label: string) => {
+  const installSchema = (result: wasm.SchemaImportResult, displayLabel: string) => {
     useCircuitStore.setState((s) => ({
       importedSchemas: [
         ...s.importedSchemas,
         {
           handle: result.handle,
-          name: `${label} (${result.summary.protocol}, ${result.summary.vertex_count}V)`,
+          name: `${displayLabel} (${result.summary.protocol}, ${result.summary.vertex_count}V)`,
           protocol: result.summary.protocol,
           vertexCount: result.summary.vertex_count,
           edgeCount: result.summary.edge_count,
@@ -116,6 +154,7 @@ export function SchemaImportWidget({ widget }: WidgetProps) {
       kind: "ok",
       message: `imported ${result.summary.protocol} (${result.summary.vertex_count}V, ${result.summary.edge_count}E)`,
     });
+    setEditing(false);
   };
 
   // ATProto: resolve NSID from lexicon.garden.
@@ -202,6 +241,23 @@ export function SchemaImportWidget({ widget }: WidgetProps) {
 
   // Group protocols by category for the dropdown.
   const categories = [...new Set(protocols.map((p) => p.category))];
+  const padding = compact ? 8 : 12;
+
+  // If a schema is already assigned to this role, show a summary banner
+  // with a Change button that falls back to the input form.
+  const [editing, setEditing] = useState(false);
+  const showAssignedBanner = assignedSchema !== null && !editing;
+
+  const clearAssignment = () => {
+    if (role === "target") {
+      assignTargetSchema(null);
+    } else {
+      // No "clear source" API; assigning null would error. Just open
+      // the form so the user can replace it.
+    }
+    setEditing(true);
+    setStatus(null);
+  };
 
   return (
     <div
@@ -211,7 +267,7 @@ export function SchemaImportWidget({ widget }: WidgetProps) {
         display: "flex",
         flexDirection: "column",
         gap: 8,
-        padding: 12,
+        padding,
         border: "1px solid oklch(0.3 0.01 250)",
         borderRadius: 6,
         background: "oklch(0.14 0.01 250)",
@@ -229,41 +285,78 @@ export function SchemaImportWidget({ widget }: WidgetProps) {
         >
           {label}
         </label>
-        <select
-          value={selectedProtocol}
-          onChange={(e) => {
-            setSelectedProtocol(e.target.value);
-            setStatus(null);
-            setInput("");
-          }}
-          title="Select schema language"
-          style={{
-            marginLeft: "auto",
-            padding: "3px 6px",
-            background: "oklch(0.18 0.01 250)",
-            border: "1px solid oklch(0.3 0.01 250)",
-            borderRadius: 3,
-            color: "#ddd",
-            fontSize: 11,
-            outline: "none",
-          }}
-        >
-          {categories.map((cat) => (
-            <optgroup key={cat} label={cat}>
-              {protocols
-                .filter((p) => p.category === cat)
-                .map((p) => (
-                  <option key={p.name} value={p.name}>
-                    {p.name}
-                  </option>
-                ))}
-            </optgroup>
-          ))}
-        </select>
+        {!showAssignedBanner && (
+          <select
+            value={selectedProtocol}
+            onChange={(e) => {
+              setSelectedProtocol(e.target.value);
+              setStatus(null);
+              setInput("");
+            }}
+            title="Select schema language"
+            style={{
+              marginLeft: "auto",
+              padding: "3px 6px",
+              background: "oklch(0.18 0.01 250)",
+              border: "1px solid oklch(0.3 0.01 250)",
+              borderRadius: 3,
+              color: "#ddd",
+              fontSize: 11,
+              outline: "none",
+            }}
+          >
+            {categories.map((cat) => (
+              <optgroup key={cat} label={cat}>
+                {protocols
+                  .filter((p) => p.category === cat)
+                  .map((p) => (
+                    <option key={p.name} value={p.name}>
+                      {p.name}
+                    </option>
+                  ))}
+              </optgroup>
+            ))}
+          </select>
+        )}
       </div>
 
+      {/* Assigned-schema banner: shows persisted assignment across mode
+          switches. "Change" swaps in the input form. */}
+      {showAssignedBanner && assignedSchema && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            padding: "6px 8px",
+            background: "oklch(0.18 0.02 140)",
+            border: "1px solid oklch(0.32 0.04 140)",
+            borderRadius: 3,
+          }}
+        >
+          <span style={{ fontSize: 11, color: "#98c379", flex: 1, wordBreak: "break-all" }}>
+            {assignedSchema.name}
+          </span>
+          <button
+            onClick={clearAssignment}
+            title="Replace this schema"
+            style={{
+              padding: "3px 8px",
+              background: "oklch(0.22 0.01 250)",
+              color: "#ccc",
+              border: "1px solid oklch(0.35 0.01 250)",
+              borderRadius: 3,
+              fontSize: 10,
+              cursor: "pointer",
+            }}
+          >
+            Change
+          </button>
+        </div>
+      )}
+
       {/* Protocol description */}
-      {selectedMeta && (
+      {!showAssignedBanner && selectedMeta && (
         <div style={{ fontSize: 10, color: "#666" }}>
           {selectedMeta.description}
           {inputFormat === "text" ? " (paste schema text below)" : " (paste JSON below)"}
@@ -271,7 +364,7 @@ export function SchemaImportWidget({ widget }: WidgetProps) {
       )}
 
       {/* ATProto: NSID resolver */}
-      {isAtproto && (
+      {!showAssignedBanner && isAtproto && (
         <>
           <div style={{ position: "relative", display: "flex", gap: 4 }}>
             <input
@@ -289,6 +382,7 @@ export function SchemaImportWidget({ widget }: WidgetProps) {
               autoComplete="off"
               style={{
                 flex: 1,
+                minWidth: 0,
                 padding: "6px 8px",
                 background: "oklch(0.1 0.01 250)",
                 border: "1px solid oklch(0.3 0.01 250)",
@@ -372,7 +466,7 @@ export function SchemaImportWidget({ widget }: WidgetProps) {
       )}
 
       {/* Generic: paste native schema */}
-      {!isAtproto && (
+      {!showAssignedBanner && !isAtproto && (
         <>
           <textarea
             value={input}
@@ -380,7 +474,7 @@ export function SchemaImportWidget({ widget }: WidgetProps) {
             placeholder={inputFormat === "text" ? "Paste schema text here..." : "Paste schema JSON here..."}
             spellCheck={false}
             style={{
-              minHeight: 100,
+              minHeight: compact ? 60 : 100,
               padding: 8,
               background: "oklch(0.1 0.01 250)",
               border: "1px solid oklch(0.3 0.01 250)",

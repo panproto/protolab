@@ -7,6 +7,7 @@ import { useCircuitStore, COMPONENT_CATALOG } from "../store/circuitStore";
 import type { ParamDef } from "../store/circuitStore";
 import * as wasm from "../wasm/bridge";
 import { ExpressionEditor } from "../components/ExpressionEditor";
+import { SchemaImportForm } from "../presentation/widgets/SchemaImportWidget";
 
 const OPTIC_COLORS: Record<string, string> = {
   iso: "#4CAF50",
@@ -346,6 +347,15 @@ function CircuitInspector({
 
       {/* Export buttons */}
       {handle !== null && <ExportButtons handle={handle} />}
+
+      {/* Schema assignment: source/target import forms are visible here
+          in edit mode as well as in presentation mode, and rehydrate
+          from the store so assignments persist across mode switches. */}
+      <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ fontSize: 10, color: "#777" }}>Schemas</div>
+        <SchemaImportForm label="Source" role="source" compact />
+        <SchemaImportForm label="Target" role="target" compact />
+      </div>
 
       {/* Imported schemas */}
       {schemas.length > 0 && (
