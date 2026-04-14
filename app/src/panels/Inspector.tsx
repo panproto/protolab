@@ -8,6 +8,7 @@ import type { ParamDef } from "../store/circuitStore";
 import * as wasm from "../wasm/bridge";
 import { ExpressionEditor } from "../components/ExpressionEditor";
 import { SchemaImportForm } from "../presentation/widgets/SchemaImportWidget";
+import { SchemaMappingWidget } from "../presentation/widgets/SchemaMappingWidget";
 
 const OPTIC_COLORS: Record<string, string> = {
   iso: "#4CAF50",
@@ -355,6 +356,15 @@ function CircuitInspector({
         <div style={{ fontSize: 10, color: "#777" }}>Schemas</div>
         <SchemaImportForm label="Source" role="source" compact />
         <SchemaImportForm label="Target" role="target" compact />
+      </div>
+
+      {/* Mirrored from presentation mode so edit-mode users have the
+          same alignment-quality + viewer + hint affordances when an
+          auto-lens is active. */}
+      <div style={{ marginTop: 12 }}>
+        <SchemaMappingWidget
+          widget={{ id: "edit-inspector-mapping", kind: "schema_mapping", props: {} }}
+        />
       </div>
 
       {/* Imported schemas */}

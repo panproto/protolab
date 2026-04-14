@@ -45,6 +45,8 @@ import init, {
   evaluate_auto_lens as evaluate_auto_lens_wasm,
   put_auto_lens as put_auto_lens_wasm,
   validate_data_against_schema as validate_data_against_schema_wasm,
+  auto_generate_with_hints_and_store as auto_generate_with_hints_and_store_wasm,
+  get_schema_details as get_schema_details_wasm,
 } from "./pkg/protolab_wasm.js";
 import { encode, decode } from "@msgpack/msgpack";
 
@@ -324,6 +326,87 @@ export function autoGenerateAndStore(
     schemaMapping: parsed.schema_mapping,
     graph,
   };
+}
+
+/**
+ * JSON-serialisable mirror of `panproto_lens::hint::HintParts`.
+ * All fields optional; an empty value degrades to plain auto-generation.
+ */
+export interface HintSpec {
+  /** Source vertex id → target vertex id anchors. */
+  anchors?: Record<string, string>;
+  /** Pairs of `[source_root, target_root]` for scope restrictions. */
+  scope_pairs?: Array<[string, string]>;
+  /** Target vertex names to exclude from all morphism domains. */
+  excluded_targets?: string[];
+  /** Source vertex names to exclude from the search. */
+  excluded_sources?: string[];
+  /** Override quality scoring component weights. */
+  scoring_weights?: [number, number, number, number];
+  /** Minimum name similarity for domain pruning. */
+  name_similarity_threshold?: number;
+  /** Optional minimum alignment quality. Defaults to 0.0. */
+  quality_threshold?: number;
+}
+
+/**
+ * Hint-guided auto-generation. Same return shape as `autoGenerateAndStore`,
+ * but the morphism search is seeded with user-supplied anchors / scope /
+ * exclusion / preference data.
+ */
+export function autoGenerateWithHintsAndStore(
+  circuitHandle: number,
+  sourceHandle: number,
+  targetHandle: number,
+  hints: HintSpec,
+): { lensHandle: number; quality: number; chainSteps: ChainStepDesc[]; schemaMapping: SchemaMappingDesc; graph: CircuitGraph } {
+  const result = auto_generate_with_hints_and_store_wasm(
+    circuitHandle,
+    sourceHandle,
+    targetHandle,
+    JSON.stringify(hints),
+  );
+  const parsed = decode(result) as AutoGenerateResult;
+  const graph = decode(parsed.graph) as CircuitGraph;
+  return {
+    lensHandle: parsed.lens_handle,
+    quality: parsed.alignment_quality,
+    chainSteps: parsed.chain_steps,
+    schemaMapping: parsed.schema_mapping,
+    graph,
+  };
+}
+
+export interface SchemaVertexDetail {
+  id: string;
+  kind: string;
+  nsid: string | null;
+  constraints: Array<{ sort: string; value: string }>;
+}
+
+export interface SchemaEdgeDetail {
+  src: string;
+  tgt: string;
+  kind: string;
+  name: string | null;
+}
+
+export interface SchemaDetails {
+  protocol: string;
+  root: string | null;
+  vertices: SchemaVertexDetail[];
+  edges: SchemaEdgeDetail[];
+}
+
+/**
+ * Inspect a stored schema: returns its protocol, root vertex (if
+ * derivable), vertices (with kind/nsid/constraints), and edges
+ * (src/tgt/kind/name). Used by the schema viewer modal and the
+ * hint editor's anchor pickers.
+ */
+export function getSchemaDetails(schemaHandle: number): SchemaDetails {
+  const result = get_schema_details_wasm(schemaHandle);
+  return decode(result) as SchemaDetails;
 }
 
 export interface AutoLensEvalResult {

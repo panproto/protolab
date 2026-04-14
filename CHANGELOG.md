@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2] — 2026-04-14
+
+### Added
+
+- **Hint-guided auto-lens generation** wired through to the UI. New
+  wasm export `auto_generate_with_hints_and_store(circuit, src, tgt,
+  hints_json)` calls `panproto_lens::auto_generate_with_hints` with
+  resolved `HintParts` (anchors, scope pairs, exclusions, scoring
+  weights, name-similarity threshold). Forward-chaining anchor
+  propagation runs server-side via `panproto_lens::hint::resolve_hints`.
+- **HintEditor modal** lets the user declare anchors interactively:
+  add anchor rows, type or pick source/target vertex ids, optionally
+  exclude vertices on either side, set a quality threshold, and
+  click Re-generate to invoke the hinted pipeline. Mounted globally
+  in `App.tsx` so it's reachable from edit and presentation modes.
+- **SchemaViewerModal**: searchable inspector for any imported
+  schema (vertices grouped by id with kind, NSID, edges, and
+  constraints). Doubles as a vertex picker when launched from
+  HintEditor's "Pick…" buttons. Reads via the new
+  `get_schema_details` wasm export.
+- **Alignment-quality badge** in the schema-mapping panel. Shows
+  the survival ratio (source vertices that reached a target) as a
+  green/amber/red percentage. A `HINTED` badge appears when the
+  current chain was generated with non-empty hints.
+- **View / Hints / Change buttons** on every assigned-schema banner
+  in `SchemaImportForm` (works in both the presentation
+  `SchemaImportWidget` and the edit-mode Inspector forms).
+- **Schema mapping panel mirrored into edit-mode Inspector** so
+  alignment quality, viewer links, and the hints entry point are
+  reachable without leaving edit mode. The two modes now share the
+  full hinting infrastructure via shared store state
+  (`schemaViewerHandle`, `hintEditorOpen`, `autoLensHints`).
+- **E2e coverage for hinting**: opening the schema viewer for
+  source + target, declaring an anchor and re-generating, and
+  verifying the alignment-quality badge appears.
+
+### Changed
+
+- panproto upgraded across the workspace from v0.30.0 → **v0.30.1**
+  (12 dependencies). Sets the stage for delegating more wasm
+  surface area to `@panproto/core` in a follow-up.
+
 ## [0.4.1] — 2026-04-14
 
 ### Fixed
@@ -321,7 +363,8 @@ Initial public release of protolab.
 - **React 19**, **React Flow 12**, **Zustand 5**, **CodeMirror 6**.
 - **vitest 2**, **@testing-library/react 16**, **Playwright 1.59**.
 
-[Unreleased]: https://github.com/panproto/protolab/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/panproto/protolab/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/panproto/protolab/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/panproto/protolab/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/panproto/protolab/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/panproto/protolab/compare/v0.2.2...v0.3.0

@@ -265,6 +265,12 @@ interface CircuitState {
     survivingVertices: string[];
     fieldTransforms: Array<[string, string[]]>;
   } | null;
+  /** Most recently applied hint spec. Empty if generation was unguided. */
+  autoLensHints: wasm.HintSpec;
+  /** Schema currently open in the viewer modal, or null when closed. */
+  schemaViewerHandle: number | null;
+  /** True when the hint editor modal is open. */
+  hintEditorOpen: boolean;
   inputDataJson: string;
   outputDataJson: string;
   wireDataMap: Record<string, string>;
@@ -314,9 +320,19 @@ interface CircuitState {
   assignSourceSchema(schemaHandle: number): void;
   assignTargetSchema(schemaHandle: number | null): void;
   autoGenerateLens(): void;
+  /** Re-run auto-generation guided by the supplied hint spec. */
+  regenerateWithHints(hints: wasm.HintSpec): void;
+  setHints(hints: wasm.HintSpec): void;
   setInputData(json: string): void;
   runEvaluation(): void;
   applyModifiedOutput(json: string): void;
+
+  // Schema viewer modal
+  openSchemaViewer(handle: number): void;
+  closeSchemaViewer(): void;
+  // Hint editor modal
+  openHintEditor(): void;
+  closeHintEditor(): void;
 
   // Theories
   buildTheoryFromJson(json: string): void;
@@ -413,6 +429,9 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
   autoLensError: null,
   autoLensChainSteps: [],
   autoLensSchemaMapping: null,
+  autoLensHints: {},
+  schemaViewerHandle: null,
+  hintEditorOpen: false,
   inputDataJson: "",
   outputDataJson: "",
   wireDataMap: {},
@@ -779,6 +798,64 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
       });
       console.warn("Auto-lens generation failed:", err);
     }
+  },
+
+  /**
+   * Hint-guided regeneration. Stores the spec on `autoLensHints`, runs
+   * `autoGenerateWithHintsAndStore`, and updates the same auto-lens
+   * fields as `autoGenerateLens`. Errors don't clear the prior chain;
+   * the user can iterate on hints without losing the last good state.
+   */
+  regenerateWithHints(hints) {
+    const handle = get().circuitHandle;
+    const src = get().sourceSchemaHandle;
+    const tgt = get().targetSchemaHandle;
+    if (handle === null || src === null || tgt === null) return;
+    set({ autoLensHints: hints });
+    try {
+      const result = wasm.autoGenerateWithHintsAndStore(handle, src, tgt, hints);
+      set({
+        evaluationError: null,
+        autoLensHandle: result.lensHandle,
+        autoLensComplementHandle: null,
+        autoLensStatus: "success",
+        autoLensError: null,
+        autoLensChainSteps: result.chainSteps.map((s) => ({
+          name: s.name,
+          sourceTransform: s.source_transform,
+          targetTransform: s.target_transform,
+        })),
+        autoLensSchemaMapping: {
+          vertexRemap: result.schemaMapping.vertex_remap,
+          addedVertices: result.schemaMapping.added_vertices,
+          removedVertices: result.schemaMapping.removed_vertices,
+          survivingVertices: result.schemaMapping.surviving_vertices,
+          fieldTransforms: result.schemaMapping.field_transforms,
+        },
+      });
+      get().applyGraph(result.graph);
+    } catch (err) {
+      const msg = String(err).replace(/^Error:\s*/i, "");
+      set({ autoLensStatus: "failed", autoLensError: msg });
+      console.warn("Hint-guided auto-lens generation failed:", err);
+    }
+  },
+
+  setHints(hints) {
+    set({ autoLensHints: hints });
+  },
+
+  openSchemaViewer(handle) {
+    set({ schemaViewerHandle: handle });
+  },
+  closeSchemaViewer() {
+    set({ schemaViewerHandle: null });
+  },
+  openHintEditor() {
+    set({ hintEditorOpen: true });
+  },
+  closeHintEditor() {
+    set({ hintEditorOpen: false });
   },
 
   setInputData(json) {

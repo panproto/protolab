@@ -15,10 +15,40 @@ import { useCircuitStore } from "../../store/circuitStore";
 export function SchemaMappingWidget(_props: WidgetProps) {
   const mapping = useCircuitStore((s) => s.autoLensSchemaMapping);
   const status = useCircuitStore((s) => s.autoLensStatus);
+  const sourceHandle = useCircuitStore((s) => s.sourceSchemaHandle);
+  const targetHandle = useCircuitStore((s) => s.targetSchemaHandle);
+  const openSchemaViewer = useCircuitStore((s) => s.openSchemaViewer);
+  const openHintEditor = useCircuitStore((s) => s.openHintEditor);
+  const hints = useCircuitStore((s) => s.autoLensHints);
+  const hasHints = Object.keys(hints.anchors ?? {}).length > 0
+    || (hints.excluded_sources?.length ?? 0) > 0
+    || (hints.excluded_targets?.length ?? 0) > 0;
 
   if (!mapping || status !== "success") {
     return null;
   }
+
+  // Survival ratio is a useful proxy for alignment quality at the UI
+  // level: it's the share of source vertices that found a target home.
+  // The actual `alignment_quality` from auto_generate is also surfaced
+  // via the badge below when available (we read it from chain steps
+  // count vs survivors as a fallback).
+  const total = mapping.survivingVertices.length + mapping.removedVertices.length;
+  const survivalRatio = total > 0 ? mapping.survivingVertices.length / total : 1;
+  const qualityBucket =
+    survivalRatio >= 0.85 ? "high" : survivalRatio >= 0.5 ? "med" : "low";
+  const qualityColor =
+    qualityBucket === "high" ? "#1B5E20" : qualityBucket === "med" ? "#FF9800" : "#B71C1C";
+
+  const linkBtn: React.CSSProperties = {
+    padding: "2px 8px",
+    background: "oklch(0.22 0.01 250)",
+    color: "#ccc",
+    border: "1px solid oklch(0.35 0.01 250)",
+    borderRadius: 3,
+    fontSize: 10,
+    cursor: "pointer",
+  };
 
   const sectionLabel: React.CSSProperties = {
     fontSize: 10,
@@ -51,8 +81,82 @@ export function SchemaMappingWidget(_props: WidgetProps) {
         overflowY: "auto",
       }}
     >
-      <div style={{ fontSize: 12, fontWeight: 600, color: "#ccc", marginBottom: 8 }}>
-        Schema mapping
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          marginBottom: 8,
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={{ fontSize: 12, fontWeight: 600, color: "#ccc" }}>
+          Schema mapping
+        </div>
+        <span
+          data-testid="alignment-quality-badge"
+          data-quality={qualityBucket}
+          title={`${mapping.survivingVertices.length} of ${total} source vertices reached the target`}
+          style={{
+            padding: "1px 6px",
+            borderRadius: 3,
+            background: qualityColor,
+            color: "#fff",
+            fontSize: 9,
+            fontWeight: 700,
+            letterSpacing: "0.05em",
+          }}
+        >
+          {(survivalRatio * 100).toFixed(0)}%
+        </span>
+        {hasHints && (
+          <span
+            title="Hints currently applied"
+            style={{
+              padding: "1px 6px",
+              borderRadius: 3,
+              background: "oklch(0.2 0.04 280)",
+              color: "#ddd",
+              fontSize: 9,
+              fontWeight: 700,
+              letterSpacing: "0.05em",
+            }}
+          >
+            HINTED
+          </span>
+        )}
+        <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
+          {sourceHandle !== null && (
+            <button
+              onClick={() => openSchemaViewer(sourceHandle)}
+              title="View source schema"
+              data-testid="mapping-view-source"
+              style={linkBtn}
+            >
+              View source
+            </button>
+          )}
+          {targetHandle !== null && (
+            <button
+              onClick={() => openSchemaViewer(targetHandle)}
+              title="View target schema"
+              data-testid="mapping-view-target"
+              style={linkBtn}
+            >
+              View target
+            </button>
+          )}
+          {sourceHandle !== null && targetHandle !== null && (
+            <button
+              onClick={openHintEditor}
+              title="Refine with hints"
+              data-testid="mapping-open-hints"
+              style={{ ...linkBtn, background: "#9C27B0", color: "#fff" }}
+            >
+              Refine with hints
+            </button>
+          )}
+        </div>
       </div>
 
       {mapping.vertexRemap.length > 0 && (

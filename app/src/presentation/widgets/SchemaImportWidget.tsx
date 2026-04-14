@@ -41,6 +41,16 @@ export interface SchemaImportFormProps {
   compact?: boolean;
 }
 
+const miniBtnStyle: React.CSSProperties = {
+  padding: "3px 8px",
+  background: "oklch(0.22 0.01 250)",
+  color: "#ccc",
+  border: "1px solid oklch(0.35 0.01 250)",
+  borderRadius: 3,
+  fontSize: 10,
+  cursor: "pointer",
+};
+
 /**
  * Standalone schema-import form — usable both as a presentation widget
  * body and inline in the edit-mode Inspector. Rehydrates from the
@@ -71,6 +81,11 @@ export function SchemaImportForm({
   const assignSourceSchema = useCircuitStore((s) => s.assignSourceSchema);
   const assignTargetSchema = useCircuitStore((s) => s.assignTargetSchema);
   const setInputData = useCircuitStore((s) => s.setInputData);
+  const openSchemaViewer = useCircuitStore((s) => s.openSchemaViewer);
+  const openHintEditor = useCircuitStore((s) => s.openHintEditor);
+  const otherSchemaHandle = useCircuitStore((s) =>
+    role === "target" ? s.sourceSchemaHandle : s.targetSchemaHandle,
+  );
 
   // Rehydration: look up the schema currently assigned to this role so
   // the user can see their work persisted across mode switches.
@@ -339,17 +354,27 @@ export function SchemaImportForm({
             {assignedSchema.name}
           </span>
           <button
+            onClick={() => openSchemaViewer(assignedSchema.handle)}
+            title="Inspect this schema's vertices, edges, and constraints"
+            data-testid={`schema-viewer-open-${role}`}
+            style={miniBtnStyle}
+          >
+            View
+          </button>
+          {otherSchemaHandle !== null && (
+            <button
+              onClick={openHintEditor}
+              title="Refine the auto-generated lens with hints"
+              data-testid={`hint-editor-open-${role}`}
+              style={miniBtnStyle}
+            >
+              Hints
+            </button>
+          )}
+          <button
             onClick={clearAssignment}
             title="Replace this schema"
-            style={{
-              padding: "3px 8px",
-              background: "oklch(0.22 0.01 250)",
-              color: "#ccc",
-              border: "1px solid oklch(0.35 0.01 250)",
-              borderRadius: 3,
-              fontSize: 10,
-              cursor: "pointer",
-            }}
+            style={miniBtnStyle}
           >
             Change
           </button>

@@ -972,6 +972,29 @@ pub fn put_auto_lens(
     put_auto_lens_inner(lens_handle, modified_json, complement_handle).map_err(Into::into)
 }
 
+/// Hint-guided auto-generation. Same response shape as
+/// `auto_generate_and_store`, but the morphism search is seeded with
+/// user-supplied anchors / scope / exclusion / preference data.
+///
+/// `hints_json` deserialises into `HintSpecJson` (see below). All
+/// fields are optional; an empty HintSpec degrades to plain
+/// auto-generation with `try_overlap`.
+#[wasm_bindgen]
+pub fn auto_generate_with_hints_and_store(
+    circuit_handle: u32,
+    source_handle: u32,
+    target_handle: u32,
+    hints_json: &str,
+) -> Result<Vec<u8>, JsError> {
+    auto_generate_with_hints_and_store_inner(
+        circuit_handle,
+        source_handle,
+        target_handle,
+        hints_json,
+    )
+    .map_err(Into::into)
+}
+
 fn auto_generate_and_store_inner(
     circuit_handle: u32,
     source_handle: u32,
@@ -1051,6 +1074,111 @@ fn auto_generate_and_store_inner(
     // ── Step 6: store the Lens for accurate evaluation ─────────────
     let lens_handle = slab::alloc(Resource::AutoLens(lens));
 
+    let graph = get_circuit_graph_inner(circuit_handle)?;
+
+    #[derive(Serialize)]
+    struct AutoLensResponse {
+        lens_handle: u32,
+        alignment_quality: f64,
+        chain_steps: Vec<ChainStepDesc>,
+        schema_mapping: SchemaMappingDesc,
+        graph: Vec<u8>,
+    }
+
+    rmp_serde::to_vec_named(&AutoLensResponse {
+        lens_handle,
+        alignment_quality: quality,
+        chain_steps,
+        schema_mapping: mapping,
+        graph,
+    })
+    .map_err(|e| WasmError::SerializationFailed(e.to_string()))
+}
+
+/// JSON-serialisable mirror of `panproto_lens::hint::HintParts` used as
+/// the wasm-side input for hint-guided auto-generation. All fields are
+/// optional; an empty value degrades to plain auto-generation.
+#[derive(serde::Deserialize, Default)]
+struct HintSpecJson {
+    #[serde(default)]
+    anchors: std::collections::HashMap<String, String>,
+    #[serde(default)]
+    scope_pairs: Vec<(String, String)>,
+    #[serde(default)]
+    excluded_targets: Vec<String>,
+    #[serde(default)]
+    excluded_sources: Vec<String>,
+    #[serde(default)]
+    scoring_weights: Option<[f64; 4]>,
+    #[serde(default)]
+    name_similarity_threshold: Option<f64>,
+    /// Optional minimum alignment quality. Defaults to 0.0 so the
+    /// search always returns its best attempt; UI surfaces the
+    /// quality and lets the user iterate on hints.
+    #[serde(default)]
+    quality_threshold: Option<f64>,
+}
+
+fn auto_generate_with_hints_and_store_inner(
+    circuit_handle: u32,
+    source_handle: u32,
+    target_handle: u32,
+    hints_json: &str,
+) -> Result<Vec<u8>, WasmError> {
+    use panproto_lens::auto_lens::{AutoLensConfig, auto_generate_with_hints};
+    use panproto_lens::hint::{HintParts, resolve_hints};
+
+    let source = slab::get_schema(source_handle)?;
+    let target = slab::get_schema(target_handle)?;
+    let protocol = panproto_protocols_default(&source);
+
+    let spec: HintSpecJson = serde_json::from_str(hints_json)
+        .map_err(|e| WasmError::DeserializationFailed(format!("hint spec: {e}")))?;
+
+    let parts = HintParts {
+        anchors: spec.anchors,
+        scope_pairs: spec.scope_pairs,
+        excluded_targets: spec.excluded_targets,
+        excluded_sources: spec.excluded_sources,
+        scoring_weights: spec.scoring_weights,
+        name_similarity_threshold: spec.name_similarity_threshold,
+    };
+    let (anchors, domain_constraints) = resolve_hints(&parts, &source, &target);
+
+    let config = AutoLensConfig {
+        try_overlap: true,
+        ..Default::default()
+    };
+    let result = auto_generate_with_hints(
+        &source,
+        &target,
+        &protocol,
+        &config,
+        &anchors,
+        &domain_constraints,
+        spec.quality_threshold,
+    )
+    .map_err(|e| WasmError::DeserializationFailed(format!("auto_generate_with_hints: {e}")))?;
+
+    let chain = result.chain;
+    let lens = result.lens;
+    let quality = result.alignment_quality;
+
+    let mapping = extract_schema_mapping(&lens, &source, &target);
+
+    let chain_steps: Vec<ChainStepDesc> = chain
+        .steps
+        .iter()
+        .map(|step| ChainStepDesc {
+            name: step.name.to_string(),
+            source_transform: format!("{:?}", step.source.transform),
+            target_transform: format!("{:?}", step.target.transform),
+        })
+        .collect();
+
+    install_field_level_components(circuit_handle, &lens, &chain)?;
+
+    let lens_handle = slab::alloc(Resource::AutoLens(lens));
     let graph = get_circuit_graph_inner(circuit_handle)?;
 
     #[derive(Serialize)]
@@ -1165,6 +1293,96 @@ fn put_auto_lens_inner(
 
     rmp_serde::to_vec_named(&PutResult { restored_json })
         .map_err(|e| WasmError::SerializationFailed(e.to_string()))
+}
+
+/// Return a structured view of a schema's vertices, edges, and
+/// constraints suitable for rendering in a UI viewer / picker.
+/// Vertices include id/kind/nsid; edges include src/tgt/kind/name;
+/// constraints group per-vertex.
+#[wasm_bindgen]
+pub fn get_schema_details(schema_handle: u32) -> Result<Vec<u8>, JsError> {
+    get_schema_details_inner(schema_handle).map_err(Into::into)
+}
+
+fn get_schema_details_inner(schema_handle: u32) -> Result<Vec<u8>, WasmError> {
+    let schema = slab::get_schema(schema_handle)?;
+
+    #[derive(Serialize)]
+    struct VertexDetail {
+        id: String,
+        kind: String,
+        nsid: Option<String>,
+        constraints: Vec<ConstraintDetail>,
+    }
+    #[derive(Serialize)]
+    struct ConstraintDetail {
+        sort: String,
+        value: String,
+    }
+    #[derive(Serialize)]
+    struct EdgeDetail {
+        src: String,
+        tgt: String,
+        kind: String,
+        name: Option<String>,
+    }
+    #[derive(Serialize)]
+    struct SchemaDetails {
+        protocol: String,
+        root: Option<String>,
+        vertices: Vec<VertexDetail>,
+        edges: Vec<EdgeDetail>,
+    }
+
+    let mut vertices: Vec<VertexDetail> = schema
+        .vertices
+        .values()
+        .map(|v| {
+            let id = v.id.to_string();
+            let constraints = schema
+                .constraints
+                .get(&v.id)
+                .map(|cs| {
+                    cs.iter()
+                        .map(|c| ConstraintDetail {
+                            sort: c.sort.to_string(),
+                            value: c.value.clone(),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            VertexDetail {
+                id,
+                kind: v.kind.to_string(),
+                nsid: v.nsid.as_ref().map(|n| n.to_string()),
+                constraints,
+            }
+        })
+        .collect();
+    vertices.sort_by(|a, b| a.id.cmp(&b.id));
+
+    let mut edges: Vec<EdgeDetail> = schema
+        .edges
+        .keys()
+        .map(|e| EdgeDetail {
+            src: e.src.to_string(),
+            tgt: e.tgt.to_string(),
+            kind: e.kind.to_string(),
+            name: e.name.as_ref().map(|n| n.to_string()),
+        })
+        .collect();
+    edges.sort_by(|a, b| (a.src.as_str(), a.tgt.as_str()).cmp(&(b.src.as_str(), b.tgt.as_str())));
+
+    let root = protolab_eval::protolens_for_component::find_root_vertex(&schema)
+        .map(|n| n.to_string());
+
+    rmp_serde::to_vec_named(&SchemaDetails {
+        protocol: schema.protocol.clone(),
+        root,
+        vertices,
+        edges,
+    })
+    .map_err(|e| WasmError::SerializationFailed(e.to_string()))
 }
 
 /// Validate a JSON data value against a schema (typically the target

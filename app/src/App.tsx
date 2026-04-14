@@ -29,6 +29,8 @@ import { Inspector } from "./panels/Inspector";
 import { Toolbar } from "./panels/Toolbar";
 import { DataPanel } from "./panels/DataPanel";
 import { KeyboardHelp } from "./panels/KeyboardHelp";
+import { SchemaViewerModal } from "./components/SchemaViewerModal";
+import { HintEditor } from "./components/HintEditor";
 import { useCircuitStore } from "./store/circuitStore";
 import { PresentationCanvas } from "./presentation/PresentationCanvas";
 import { PresentationToolbar } from "./presentation/PresentationToolbar";
@@ -325,6 +327,7 @@ export default function App() {
           <PresentationCanvas />
         </div>
         {keysOpen && <KeyboardHelp onClose={() => setKeysOpen(false)} />}
+        <GlobalModals />
       </div>
     );
   }
@@ -343,7 +346,37 @@ export default function App() {
         </div>
         <DataPanel />
         {keysOpen && <KeyboardHelp onClose={() => setKeysOpen(false)} />}
+        <GlobalModals />
       </div>
     </ReactFlowProvider>
+  );
+}
+
+/**
+ * Schema viewer + hint editor are rendered in both modes so the hinting
+ * infrastructure is reachable from edit mode (Inspector schema banner)
+ * and presentation mode (SchemaMappingWidget) without duplicating
+ * lifecycle. State lives on the store; this is just the mount point.
+ */
+function GlobalModals() {
+  const schemaViewerHandle = useCircuitStore((s) => s.schemaViewerHandle);
+  const closeSchemaViewer = useCircuitStore((s) => s.closeSchemaViewer);
+  const hintEditorOpen = useCircuitStore((s) => s.hintEditorOpen);
+  const importedSchemas = useCircuitStore((s) => s.importedSchemas);
+  const viewerLabel =
+    schemaViewerHandle === null
+      ? undefined
+      : importedSchemas.find((s) => s.handle === schemaViewerHandle)?.name;
+  return (
+    <>
+      {schemaViewerHandle !== null && (
+        <SchemaViewerModal
+          schemaHandle={schemaViewerHandle}
+          label={viewerLabel}
+          onClose={closeSchemaViewer}
+        />
+      )}
+      {hintEditorOpen && <HintEditor />}
+    </>
   );
 }
