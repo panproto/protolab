@@ -47,29 +47,21 @@ test.describe("backward evaluation (Apply Back)", () => {
     await outputArea.fill(JSON.stringify(parsed, null, 2));
     await page.getByRole("button", { name: /Apply Back/ }).click();
 
-    // The apply chain may surface an evaluationError if the underlying
-    // wasm `apply_modified_output` can't reconstruct a valid source
-    // (the demo circuit's complement serialization currently produces
-    // an empty string for the cached complement, causing the put
-    // pipeline to throw — see api.rs:2069). When it succeeds, the
-    // input's `name` should become "Bob" via the rename_field step's
-    // put. We assert the strong invariant when no error surfaced;
-    // otherwise we surface the error to keep visibility on the bug.
-    const result = await page.evaluate(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const s = (window as any).__protolabStore.getState();
-      return { input: s.inputDataJson, err: s.evaluationError };
-    });
-    if (result.err) {
-      // Document the failure rather than silencing it: the put pipeline
-      // is broken at the wasm layer, not in the UI we're testing.
-      // eslint-disable-next-line no-console
-      console.warn(`apply_modified_output errored (known): ${result.err}`);
-      // Output edit is still retained, which is the UI-layer guarantee.
-      await expect(outputArea).toHaveValue(JSON.stringify(parsed, null, 2));
-    } else {
-      expect(result.input).toContain("Bob");
-    }
+    // Apply Back invokes `asymmetric::put` through the cached lens +
+    // complement and propagates the edit back through the rename_field
+    // step, so the input's `name` field becomes "Bob". Read via the
+    // store directly to avoid racing React's controlled-textarea
+    // re-render.
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(() => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            return (window as any).__protolabStore.getState().inputDataJson;
+          }),
+        { timeout: 15_000 },
+      )
+      .toContain("Bob");
   });
 });
 

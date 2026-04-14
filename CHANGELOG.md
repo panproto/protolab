@@ -7,6 +7,149 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] — 2026-04-14
+
+### Fixed
+
+- **Apply Back was silently broken on every demo-flavoured circuit.**
+  `apply_modified_output_inner` was serialising the cached
+  `final_lens.tgt_schema` and `final_complement` to JSON and
+  immediately re-parsing them inside the same `with_resource` closure
+  where both values are already borrowable.
+  `Complement.contraction_choices: HashMap<(u32, u32), Edge>` and
+  `arc_edges: HashMap<(u32, u32), Edge>` are not representable as JSON
+  object keys (tuple keys aren't strings), so `serde_json::to_string`
+  errored, the trailing `unwrap_or_default()` turned the failure into
+  an empty string, and the next `from_str` then failed with "EOF
+  while parsing" — masking the real serialization bug as a generic
+  deserialization error. Replaced with an in-place borrow: `parse_json`
+  + `put` + `to_json` happen inside one `with_resource_mut`, with all
+  errors propagated through `WasmError`. `find_root_vertex` is now
+  used instead of `tgt_schema.vertices.keys().next()` so the right
+  root is picked when iteration order isn't deterministic.
+- **`backward evaluation (Apply Back)` e2e** now strictly asserts the
+  input field reflects the user's output edit ("Bob" propagates
+  through the `rename_field` step) instead of soft-failing.
+
+## [0.4.0] — 2026-04-14
+
+### Added
+
+- **Target-schema validation badge** in the output pane. New
+  `validate_data_against_schema` wasm export runs `panproto-inst`'s
+  `parse_json` + `validate_wtype` against the assigned target schema
+  on every Run; the output pane shows a green ✓ VALID or red ✗ N ERR
+  badge, and clicking the red badge expands per-error details.
+- **Chain-step fallback in `install_field_level_components`**
+  (`crates/protolab-wasm/src/api.rs`): cross-schema mappings whose
+  diff is purely theory-level (sort/op rewrites — e.g.
+  `blue.2048.verification.stats → app.bsky.graph.verification`)
+  previously produced a populated chain-steps panel but a blank edit
+  canvas. The installer now emits one `chain_step` component per
+  protolens step when no field-level transforms produced components,
+  so edit mode is never blank.
+- **Source/target schema forms in the edit-mode Inspector**: the new
+  reusable `SchemaImportForm` (extracted from `SchemaImportWidget`)
+  is rendered in `CircuitInspector` as well as the presentation
+  layer, so schemas can be assigned without leaving edit mode.
+- **Schema-assignment rehydration**: `SchemaImportForm` now reads
+  `sourceSchemaHandle` / `targetSchemaHandle` from the store and
+  shows an "assigned" banner with a Change button when this role
+  already has a schema, so mode-switching no longer appears to reset
+  state.
+- **Run button readiness gate**: the presentation `RunButtonWidget`
+  is disabled while the source schema is null, with a
+  `data-ready="true|false"` attribute. Eliminates the race where a
+  user (or template auto-resolve) could click Run before
+  lexicon.garden returned the source schema.
+- **E2e coverage explosion** (21 → 54 tests):
+  `cross-schema-mapping.spec.ts` (regression for the empty-canvas
+  fix), `toolbar-panels.spec.ts` (Theories / Colimit / Schemas /
+  Protocols / Import / Export entry points), and
+  `complex-workflows.spec.ts` (20 multi-step user journeys including
+  expression-driven `compute_field` chains, `map_items` scoped
+  traversals, theory import + colimit composition, share-URL
+  round-trip, and validation-badge failure path).
+- **Store exposed on `window` for e2e**: `__protolabStore` lets
+  Playwright drive the circuit deterministically without simulating
+  fragile React Flow drag/drop.
+- **Stable testids on the DataPanel**: `data-panel-input`,
+  `data-panel-wire`, `data-panel-output`,
+  `output-validation-badge`, `output-validation-details`.
+
+### Changed
+
+- **panproto upgraded across the workspace from v0.28.0 → v0.30.0**
+  (12 dependencies).
+
+### Fixed
+
+- Pre-existing test breakage caused by stale selectors:
+  `Edit circuit` ambiguity (toolbar + empty-state body), the
+  `lexicon_import → schema_import` widget rename, demo data drift
+  from `"legacyId":42` to `7042`, and `presentation.spec.ts` Run
+  tests racing the lexicon auto-resolve fetch.
+
+## [0.3.0] — 2026-04-12
+
+### Added
+
+- **Multi-protocol schema import with 30+ parsers**: a new unified
+  `SchemaImportWidget` replaces the atproto-only `LexiconImportWidget`
+  with a protocol selector that drives protocol-specific input UI
+  (atproto → NSID + lexicon.garden autocomplete + Resolve, openapi →
+  paste OpenAPI JSON + Parse, mongodb → paste `$jsonSchema` + Parse,
+  cddl → paste CDDL text + Parse, etc. for all panproto-supported
+  protocols).
+- **Native panproto auto-lens pipeline**: target-schema assignment
+  triggers `wasm.autoGenerateAndStore` which diffs source vs. target
+  via `panproto_check::diff` + `diff_to_protolens`, instantiates the
+  resulting `ProtolensChain` to a `Lens`, and stores the chain steps
+  + schema mapping for the presentation layer to display. Forward
+  evaluation uses `asymmetric::get` directly through the cached lens;
+  put-back uses `asymmetric::put` with the cached complement.
+- **Target schema assignment + automatic lens generation**: assigning
+  a target schema fires `autoGenerateLens`, which produces a real
+  editable circuit on the canvas (or a chain-steps summary in
+  presentation mode). Auto-lens status is surfaced in the lens chain
+  widget, schema mapping panel, and inspector.
+- **Tooltips, keyboard-shortcut help, presentation help modal**: a
+  `?` shortcut opens a keyboard-help overlay; presentation mode has
+  a dedicated help modal explaining the layout.
+- **Default landing loads the Lexicon Mapper template** in
+  presentation mode for first-time visitors; explicit `?mode=edit`
+  bypasses the template.
+- **Richer demo data** with non-trivial values (Alice Chen,
+  legacyId 7042) so eval output is visibly meaningful.
+- **Lens chain widget redesign**: SVG arrow connectors, equal
+  spacing between filled-triangle arrows, removed static
+  bidirectionality claims that went stale when chains changed.
+
+### Changed
+
+- panproto upgraded to **v0.28.0**: array round-trip fix
+  ([panproto#27]), `Value::List`, generic `is_list_vertex` detection,
+  incremental git import, XRPC query endpoints.
+- Removed `free` and `two_column` presentation layouts in favour of
+  the form layout — the only one that actually held up across widget
+  combinations.
+- Generic Input/Output labels on the data panel that don't go stale
+  as schemas change.
+
+### Fixed
+
+- Don't auto-generate when target is null; don't pollute
+  `evaluationError` on auto-lens failures.
+- Restore `langs`/`tags` in the canonical post fixture (workaround
+  for [panproto#27]).
+- CI default landing loads the template via raw URL check for
+  `?mode=edit`.
+- Robust template loading on refresh with `?mode=presentation`;
+  presentation doc is set before WASM calls so the UI has widgets
+  even if WASM init throws.
+- Reorder presentation widgets so the lens chain sits between input
+  and output (left-to-right reading order matches the data flow).
+
 ## [0.2.2] — 2026-04-10
 
 ### Added
@@ -178,7 +321,14 @@ Initial public release of protolab.
 - **React 19**, **React Flow 12**, **Zustand 5**, **CodeMirror 6**.
 - **vitest 2**, **@testing-library/react 16**, **Playwright 1.59**.
 
-[Unreleased]: https://github.com/panproto/protolab/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/panproto/protolab/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/panproto/protolab/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/panproto/protolab/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/panproto/protolab/compare/v0.2.2...v0.3.0
+[0.2.2]: https://github.com/panproto/protolab/compare/v0.2.1...v0.2.2
+[0.2.1]: https://github.com/panproto/protolab/compare/v0.2.0...v0.2.1
+[0.2.0]: https://github.com/panproto/protolab/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/panproto/protolab/releases/tag/v0.1.0
 [panproto#23]: https://github.com/panproto/panproto/issues/23
 [panproto#24]: https://github.com/panproto/panproto/issues/24
+[panproto#27]: https://github.com/panproto/panproto/issues/27

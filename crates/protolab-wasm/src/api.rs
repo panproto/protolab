@@ -2032,59 +2032,41 @@ fn apply_modified_output_inner(
 
     let source_schema = slab::get_schema(source_h)?;
 
-    // Get the cached lens and complement.
-    let (final_lens_json, complement_json) = slab::with_resource(circuit_handle, |r| match r {
-        Resource::Circuit(state) => state
-            .last_eval
-            .as_ref()
-            .map(|e| {
-                (
-                    serde_json::to_string(&e.final_lens.tgt_schema).unwrap_or_default(),
-                    serde_json::to_string(&e.final_complement).unwrap_or_default(),
-                )
-            })
-            .unwrap_or_default(),
-        _ => (String::new(), String::new()),
-    })?;
-
-    if final_lens_json.is_empty() {
-        return Err(WasmError::DeserializationFailed(
-            "no evaluation cache — run evaluate_circuit first".into(),
-        ));
-    }
-
-    // Reconstruct view from JSON using the target schema.
-    let tgt_schema: panproto_schema::Schema = serde_json::from_str(&final_lens_json)
-        .map_err(|e| WasmError::DeserializationFailed(e.to_string()))?;
-    let root = tgt_schema
-        .vertices
-        .keys()
-        .next()
-        .map(|n| n.to_string())
-        .unwrap_or_else(|| "root".into());
-    let view = panproto_inst::parse::parse_json(&tgt_schema, &root, &value)
-        .map_err(|e| WasmError::DeserializationFailed(e.to_string()))?;
-
-    // Reconstruct complement.
-    let complement: panproto_lens::asymmetric::Complement = serde_json::from_str(&complement_json)
-        .map_err(|e| WasmError::DeserializationFailed(e.to_string()))?;
-
-    // Need to rebuild the lens. Use the cached final_lens directly via with_resource.
-    let restored_input_json = slab::with_resource(circuit_handle, |r| match r {
+    // Borrow the cached lens + complement directly from `last_eval`.
+    // Earlier versions serialized both to JSON and re-parsed them on
+    // the way back in, but `Complement` contains `HashMap<(u32, u32),
+    // Edge>` fields whose tuple keys are not representable as JSON
+    // object keys — `serde_json::to_string` errored, the
+    // `unwrap_or_default()` call turned the failure into an empty
+    // string, and the next `from_str` then failed with "EOF while
+    // parsing", silently breaking Apply Back. The values are already
+    // owned by the slab, so we just borrow them through one
+    // `with_resource_mut` and run the put/to_json pipeline in place.
+    let restored_input_json = slab::with_resource_mut(circuit_handle, |r| match r {
         Resource::Circuit(state) => {
-            if let Some(eval) = &state.last_eval {
-                let restored = put(&eval.final_lens, &view, &complement)
-                    .map(|inst| panproto_inst::parse::to_json(&source_schema, &inst));
-                match restored {
-                    Ok(j) => serde_json::to_string_pretty(&j).unwrap_or_default(),
-                    Err(_) => String::new(),
-                }
-            } else {
-                String::new()
-            }
+            let eval = state
+                .last_eval
+                .as_ref()
+                .ok_or_else(|| WasmError::DeserializationFailed(
+                    "no evaluation cache — run evaluate_circuit first".into(),
+                ))?;
+            let tgt_schema = &eval.final_lens.tgt_schema;
+            let root = protolab_eval::find_root_vertex(tgt_schema)
+                .map(|n| n.to_string())
+                .unwrap_or_else(|| "root".into());
+            let view = panproto_inst::parse::parse_json(tgt_schema, &root, &value)
+                .map_err(|e| WasmError::DeserializationFailed(format!("parse view: {e}")))?;
+            let restored = put(&eval.final_lens, &view, &eval.final_complement)
+                .map_err(|e| WasmError::DeserializationFailed(format!("lens put: {e}")))?;
+            let restored_value = panproto_inst::parse::to_json(&source_schema, &restored);
+            serde_json::to_string_pretty(&restored_value)
+                .map_err(|e| WasmError::SerializationFailed(e.to_string()))
         }
-        _ => String::new(),
-    })?;
+        _ => Err(WasmError::TypeMismatch {
+            expected: "Circuit",
+            got: "other",
+        }),
+    })??;
 
     Ok(restored_input_json)
 }
