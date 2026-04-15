@@ -4,7 +4,7 @@
  */
 
 import { useState } from "react";
-import { useCircuitStore } from "../store/circuitStore";
+import { useCircuitStore, hasDataLevelMapping } from "../store/circuitStore";
 
 export function DataPanel() {
   const {
@@ -19,6 +19,7 @@ export function DataPanel() {
     sourceSchemaHandle,
     outputValidation,
   } = useCircuitStore();
+  const runnable = useCircuitStore(hasDataLevelMapping);
   const [showValidationDetails, setShowValidationDetails] = useState(false);
 
   const wireData = selectedWireId ? wireDataMap[selectedWireId] : null;
@@ -85,7 +86,18 @@ export function DataPanel() {
       <div style={sectionStyle}>
         <div style={headerStyle}>
           <span>Input</span>
-          <button style={buttonStyle} onClick={runEvaluation} disabled={sourceSchemaHandle === null}>
+          <button
+            style={buttonStyle}
+            onClick={runEvaluation}
+            disabled={sourceSchemaHandle === null || !runnable}
+            title={
+              sourceSchemaHandle === null
+                ? "Assign a source schema first"
+                : !runnable
+                  ? "No data-level mapping yet — add hints or build the lens"
+                  : "Run the lens forward on the input"
+            }
+          >
             Run ▶
           </button>
         </div>

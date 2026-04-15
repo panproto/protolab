@@ -137,22 +137,21 @@ test.describe("hint editor (cross-mode)", () => {
   });
 });
 
-test.describe("alignment quality badge", () => {
-  test("shows after Run when both schemas are assigned (cross-mode)", async ({
+test.describe("mapping widget after target assignment", () => {
+  test("shows either a quality badge or the empty-state CTA depending on what auto-gen derived", async ({
     ready: page,
   }) => {
     await page.keyboard.press("Escape");
     await assignDemoTargetViaForm(page);
-    // Mapping widget is mirrored into the Inspector — the quality
-    // badge should be visible immediately because auto-lens fires
-    // on target assignment.
-    await expect(page.getByTestId("alignment-quality-badge")).toBeVisible({
-      timeout: 15_000,
-    });
-    const quality = await page
-      .getByTestId("alignment-quality-badge")
-      .getAttribute("data-quality");
-    expect(["high", "med", "low"]).toContain(quality);
+    // The mapping widget in the Inspector renders one of two surfaces
+    // after target assignment:
+    //   * `alignment-quality-badge` — data-level mapping was inferred
+    //   * `mapping-empty-add-hints` — no data-level mapping, empty state
+    // Both are correct v0.4.4 outcomes; "neither visible" means the
+    // mapping widget didn't render at all, which would be a bug.
+    const badge = page.getByTestId("alignment-quality-badge");
+    const empty = page.getByTestId("mapping-empty-add-hints");
+    await expect(badge.or(empty)).toBeVisible({ timeout: 15_000 });
   });
 });
 

@@ -271,6 +271,8 @@ interface CircuitState {
   schemaViewerHandle: number | null;
   /** True when the hint editor modal is open. */
   hintEditorOpen: boolean;
+  /** True when the theory-level diff modal is open. */
+  theoryDiffOpen: boolean;
   inputDataJson: string;
   outputDataJson: string;
   wireDataMap: Record<string, string>;
@@ -333,6 +335,9 @@ interface CircuitState {
   // Hint editor modal
   openHintEditor(): void;
   closeHintEditor(): void;
+  // Theory-level diff modal
+  openTheoryDiff(): void;
+  closeTheoryDiff(): void;
 
   // Theories
   buildTheoryFromJson(json: string): void;
@@ -345,6 +350,33 @@ interface CircuitState {
 
 let nextComponentId = 0;
 let nextWireId = 100;
+
+/**
+ * True when the store has a real instance-level lens ready to run.
+ * False when auto-generation succeeded but produced only theory-level
+ * steps with no corresponding circuit components (the old chain_step
+ * placeholders would have made Run silently return the input). The
+ * flag lets the DataPanel + RunButtonWidget disable Run cleanly.
+ *
+ * Readers pass it a fresh store state via `useCircuitStore((s) =>
+ * hasDataLevelMapping(s))` for reactive subscription.
+ */
+export function hasDataLevelMapping(s: CircuitState): boolean {
+  if (s.sourceSchemaHandle === null || s.targetSchemaHandle === null) {
+    // No target assigned — source-only manual path, Run still makes
+    // sense against a user-built or demo circuit.
+    return s.nodes.length > 0;
+  }
+  if (s.autoLensStatus === "success" && s.nodes.length === 0) {
+    // Auto-gen succeeded but installed no components. If the chain
+    // is empty too, that's the identity case (source ≡ target) and
+    // Run legitimately returns input-as-output. Anything else means
+    // panproto produced a theory-level-only chain that would run as
+    // a confusing no-op on instance data.
+    return s.autoLensChainSteps.length === 0;
+  }
+  return s.nodes.length > 0;
+}
 
 /**
  * Run target-schema validation on the latest output JSON. Returns null
@@ -432,6 +464,7 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
   autoLensHints: {},
   schemaViewerHandle: null,
   hintEditorOpen: false,
+  theoryDiffOpen: false,
   inputDataJson: "",
   outputDataJson: "",
   wireDataMap: {},
@@ -856,6 +889,12 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
   },
   closeHintEditor() {
     set({ hintEditorOpen: false });
+  },
+  openTheoryDiff() {
+    set({ theoryDiffOpen: true });
+  },
+  closeTheoryDiff() {
+    set({ theoryDiffOpen: false });
   },
 
   setInputData(json) {

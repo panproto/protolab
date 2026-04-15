@@ -1,5 +1,5 @@
 import type { WidgetProps } from "../WidgetRegistry";
-import { useCircuitStore } from "../../store/circuitStore";
+import { useCircuitStore, hasDataLevelMapping } from "../../store/circuitStore";
 import { getProp } from "./widgetHelpers";
 
 /**
@@ -14,27 +14,31 @@ export function RunButtonWidget({ widget }: WidgetProps) {
   // eager click would otherwise race the fetch and produce a
   // "no source schema assigned" error.
   const sourceReady = useCircuitStore((s) => s.sourceSchemaHandle !== null);
+  const runnable = useCircuitStore(hasDataLevelMapping);
+  const enabled = sourceReady && runnable;
 
   return (
     <button
       data-widget="run_button"
-      data-ready={sourceReady ? "true" : "false"}
+      data-ready={enabled ? "true" : "false"}
       onClick={runEvaluation}
-      disabled={!sourceReady}
+      disabled={!enabled}
       title={
-        sourceReady
-          ? "Run the lens forward on the input data and show the output"
-          : "Waiting for source schema to resolve…"
+        !sourceReady
+          ? "Waiting for source schema to resolve…"
+          : !runnable
+            ? "No data-level mapping yet — add hints or build the lens"
+            : "Run the lens forward on the input data and show the output"
       }
       style={{
         padding: "12px 24px",
-        background: sourceReady ? "#FF9800" : "oklch(0.3 0.01 250)",
-        color: sourceReady ? "#1a1a1a" : "#888",
+        background: enabled ? "#FF9800" : "oklch(0.3 0.01 250)",
+        color: enabled ? "#1a1a1a" : "#888",
         border: "none",
         borderRadius: 6,
         fontSize: 14,
         fontWeight: 700,
-        cursor: sourceReady ? "pointer" : "wait",
+        cursor: enabled ? "pointer" : "not-allowed",
         textTransform: "uppercase",
         letterSpacing: "0.05em",
       }}

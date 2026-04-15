@@ -1046,16 +1046,58 @@ pub fn auto_generate_with_hints_and_store(
     .map_err(Into::into)
 }
 
-/// Byte-equal schema comparison via msgpack so we don't need a
-/// custom Schema PartialEq implementation. Used as the second leg of
-/// the identity short-circuit in auto-generation: if the schemas are
-/// bit-for-bit equal there is nothing for the morphism search to
-/// discover and we can return an identity lens immediately.
+/// Set-wise schema equality: two schemas are treated as equal when
+/// their protocol, vertex set, edge set, and per-vertex constraint
+/// set match (independent of HashMap iteration order). `Schema`
+/// doesn't derive `PartialEq`, so we compare field by field. Used
+/// as the second leg of the identity short-circuit in
+/// auto-generation: if the schemas are structurally identical there
+/// is nothing for the morphism search to discover, and we can return
+/// an identity lens immediately. Byte-equal (rmp_serde::to_vec)
+/// would NOT work here — two independent parses of the same lexicon
+/// produce semantically identical schemas whose msgpack bytes
+/// diverge because HashMap iteration order differs across Rusts.
 fn schemas_byte_equal(a: &panproto_schema::Schema, b: &panproto_schema::Schema) -> bool {
-    match (rmp_serde::to_vec(a), rmp_serde::to_vec(b)) {
-        (Ok(av), Ok(bv)) => av == bv,
-        _ => false,
+    if a.protocol != b.protocol {
+        return false;
     }
+    if a.vertices.len() != b.vertices.len() {
+        return false;
+    }
+    // Vertices: compare as a key→value map. `Vertex` derives PartialEq.
+    for (k, v) in &a.vertices {
+        match b.vertices.get(k) {
+            Some(bv) if bv == v => {}
+            _ => return false,
+        }
+    }
+    if a.edges.len() != b.edges.len() {
+        return false;
+    }
+    for (e, kind) in &a.edges {
+        match b.edges.get(e) {
+            Some(bk) if bk == kind => {}
+            _ => return false,
+        }
+    }
+    // Constraints: compare as a vertex→sorted-vec map. Constraint is
+    // Ord so sorting is total and stable.
+    if a.constraints.len() != b.constraints.len() {
+        return false;
+    }
+    for (k, cs_a) in &a.constraints {
+        let Some(cs_b) = b.constraints.get(k) else {
+            return false;
+        };
+        let mut sa = cs_a.clone();
+        let mut sb = cs_b.clone();
+        sa.sort();
+        sb.sort();
+        if sa != sb {
+            return false;
+        }
+    }
+    true
 }
 
 fn auto_generate_and_store_inner(
@@ -1624,7 +1666,7 @@ fn extract_schema_mapping(
 fn install_field_level_components(
     circuit_handle: u32,
     lens: &panproto_lens::Lens,
-    chain: &panproto_lens::protolens::ProtolensChain,
+    _chain: &panproto_lens::protolens::ProtolensChain,
 ) -> Result<(), WasmError> {
     use protolab_schema::mutate::PortSpec;
 
@@ -1769,50 +1811,21 @@ fn install_field_level_components(
             }
             } // drop `add_comp` closure → release borrow of comp_idx
 
-            // Fallback: if the compiled migration produced no field-level
-            // components (e.g. cross-protocol diffs where every step is a
-            // theory-level sort/op rewrite), render each protolens step as
-            // a `chain_step` component so the user still gets an editable
-            // circuit on canvas instead of a blank panel.
-            if comp_idx == 0 && !chain.steps.is_empty() {
-                let mut add_comp =
-                    |schema: &mut panproto_schema::Schema, comp_type: &str, params: &[(&str, &str)]| {
-                        let comp_id = format!("auto_{comp_idx}");
-                        comp_idx += 1;
-                        let ports = default_ports(&comp_id);
-                        mutate::add_component(schema, &comp_id, comp_type, &ports).ok();
-                        for (k, v) in params {
-                            mutate::update_param(schema, &comp_id, k, v).ok();
-                        }
-                        if let Some(ref prev) = prev_comp {
-                            let wid = format!("aw_{wire_idx}");
-                            wire_idx += 1;
-                            mutate::add_wire(
-                                schema,
-                                &wid,
-                                &format!("{prev}.out"),
-                                &format!("{comp_id}.in"),
-                                Some("lens"),
-                                false,
-                            )
-                            .ok();
-                        }
-                        prev_comp = Some(comp_id);
-                    };
-                for step in &chain.steps {
-                    let src_desc = format!("{:?}", step.source.transform);
-                    let tgt_desc = format!("{:?}", step.target.transform);
-                    add_comp(
-                        &mut state.schema,
-                        "chain_step",
-                        &[
-                            ("step_name", step.name.as_ref()),
-                            ("source_transform", src_desc.as_str()),
-                            ("target_transform", tgt_desc.as_str()),
-                        ],
-                    );
-                }
-            }
+            // Intentionally no fallback: when no field-level transforms
+            // were derived, the canvas stays empty. The frontend detects
+            // this (nodes.length === 0 && autoLensChainSteps.length > 0)
+            // and renders `CanvasEmptyState` with clear CTAs for adding
+            // hints or viewing the theory-level diff in a modal. Earlier
+            // versions (v0.4.0–v0.4.3) populated the canvas with
+            // `chain_step` placeholders that ran as the identity at the
+            // instance level — which produced a "Run yields input back,
+            // plus a red validation badge" UX that was silently confusing.
+            //
+            // We still hold `comp_idx` / `prev_comp` / `wire_idx` to
+            // keep the structure consistent with the field-level pass,
+            // and the chain (preserved in `autoLensChainSteps`) is
+            // surfaced in the new TheoryDiffModal on the frontend.
+            let _ = comp_idx;
         }
     })?;
 

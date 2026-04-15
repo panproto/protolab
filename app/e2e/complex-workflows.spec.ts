@@ -176,28 +176,30 @@ test.describe("workflow 2: edit ↔ presentation round-trip preserves the circui
 // ─────────────────────────────────────────────────────────────────────
 
 test.describe("workflow 3: target-schema validation badge", () => {
-  test("shows a validation badge after Run when target is assigned", async ({
+  test("shows a validation badge after Run with an identity-mapped target", async ({
     page,
   }) => {
+    // Use identity mapping so the lens is runnable (v0.4.4: Run is
+    // disabled when auto-gen succeeds but installs no components,
+    // which is the correct UX for disjoint schemas).
     await page.goto("/?mode=edit");
     await expect(page.getByText("protolab", { exact: true })).toBeVisible();
     await page.keyboard.press("Escape");
-    // Use the Inspector source/target schema forms to assign a target
-    // (source is pre-assigned by the demo).
-    const target = page
-      .locator('[data-widget="schema_import"][data-role="target"]')
-      .first();
-    await target.waitFor({ state: "visible", timeout: 15_000 });
-    const changeBtn = target.getByRole("button", { name: "Change" });
-    if (await changeBtn.isVisible().catch(() => false)) await changeBtn.click();
-    await target
-      .locator('input[aria-label="Lexicon NSID"]')
-      .fill("app.bsky.feed.post");
-    await target.getByRole("button", { name: "Resolve" }).click();
-    await expect(target.getByRole("button", { name: "Change" })).toBeVisible({
-      timeout: 30_000,
-    });
-    // Sane input that the demo source schema accepts.
+    for (const role of ["source", "target"] as const) {
+      const form = page
+        .locator(`[data-widget="schema_import"][data-role="${role}"]`)
+        .first();
+      await form.waitFor({ state: "visible", timeout: 15_000 });
+      const changeBtn = form.getByRole("button", { name: "Change" });
+      if (await changeBtn.isVisible().catch(() => false)) await changeBtn.click();
+      await form
+        .locator('input[aria-label="Lexicon NSID"]')
+        .fill("app.bsky.feed.post");
+      await form.getByRole("button", { name: "Resolve" }).click();
+      await expect(form.getByRole("button", { name: "Change" })).toBeVisible({
+        timeout: 30_000,
+      });
+    }
     await setInputAndRun(page, "{}");
     await expect(page.getByTestId("output-validation-badge")).toBeVisible({
       timeout: 20_000,
@@ -390,8 +392,8 @@ test.describe("workflow 11: protocol editor scaffolding", () => {
 // 12. Cross-schema mapping with chain_step fallback
 // ─────────────────────────────────────────────────────────────────────
 
-test.describe("workflow 12: cross-schema mapping shows components", () => {
-  test("mapping unrelated atproto schemas yields a non-empty edit canvas", async ({
+test.describe("workflow 12: cross-schema mapping surfaces the empty-state CTAs", () => {
+  test("mapping unrelated atproto schemas shows the CanvasEmptyState with hint + theory-diff buttons", async ({
     page,
   }) => {
     await page.goto("/?mode=edit");
@@ -412,9 +414,10 @@ test.describe("workflow 12: cross-schema mapping shows components", () => {
     };
     await assign("source", "blue.2048.verification.stats");
     await assign("target", "app.bsky.graph.verification");
-    await expect(page.locator(".react-flow__node").first()).toBeVisible({
-      timeout: 15_000,
-    });
+    const overlay = page.getByTestId("canvas-empty-state");
+    await expect(overlay).toBeVisible({ timeout: 15_000 });
+    await expect(overlay.getByTestId("canvas-empty-add-hints")).toBeVisible();
+    await expect(overlay.getByTestId("canvas-empty-view-diff")).toBeVisible();
   });
 });
 

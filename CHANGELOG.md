@@ -7,6 +7,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.4] — 2026-04-14
+
+### Changed
+
+- **Empty canvas is now the correct state when no data-level mapping
+  can be inferred.** Previously (v0.4.0–v0.4.3) the installer emitted
+  `chain_step` placeholder components that ran as the identity at the
+  instance level, producing a "Run yields input back, plus a red
+  validation badge" UX that silently confused users. The fallback is
+  removed; the canvas stays genuinely empty and the UI surfaces the
+  situation explicitly.
+- **Run button disabled** in both edit mode (`DataPanel`) and
+  presentation mode (`RunButtonWidget`) whenever auto-gen succeeded
+  but installed no components AND the chain has at least one
+  theory-level step. Tooltip: "No data-level mapping yet — add hints
+  or build the lens." The identity case (source ≡ target) stays
+  Runnable as before.
+
+### Added
+
+- **`CanvasEmptyState`** overlay renders centered in the React Flow
+  pane when no data-level mapping was derived. Three clear paths:
+  - **🎯 Add hints to guide the search** (primary, opens HintEditor)
+  - **View theory-level diff** (secondary, opens TheoryDiffModal)
+  - *"Or drag components from the palette →"* hint toward the palette
+- **`TheoryDiffModal`** lists the protolens chain's sort/op-level
+  rewrites (AddSort, DropOp, …) with explicit copy making it clear
+  they describe the structural diff but do NOT transform instance
+  data. Accessible from both the canvas empty state and the
+  presentation-mode mapping widget (new `Theory diff` link).
+- Presentation-mode `SchemaMappingWidget` now mirrors the same
+  empty-state banner (same CTAs) in place of its normal mapping
+  sections when no field-level transforms exist — instance-level
+  and theory-level information no longer share a pane, which was
+  the source of the confusion.
+- `hasDataLevelMapping(state)` selector in the store: the single
+  source of truth that drives the Run button's enabled state and the
+  `CanvasEmptyState` visibility condition.
+
+### Fixed
+
+- `schemas_byte_equal` replaced with a set-wise `Schema` comparison
+  (protocol + vertex map + edge map + per-vertex constraint set).
+  The old msgpack-bytes comparison was HashMap-iteration-order-
+  dependent, so two independent parses of the same NSID produced
+  different bytes and the identity short-circuit didn't fire — the
+  symptom was a 30 s+ hang on self-mapping after parsing the same
+  schema twice.
+
+### Rigorous e2e coverage
+
+- Three new tests in `hinting-rigorous.spec.ts`: clicking **Add
+  hints** on the empty-state overlay opens the HintEditor; clicking
+  **View theory-level diff** opens the TheoryDiffModal with at
+  least one chain step listed; Run is disabled when no data-level
+  mapping is inferred.
+- Updated `cross-schema-mapping.spec.ts`, `complex-workflows.spec.ts`,
+  `cross-language.spec.ts`, and `hinting.spec.ts` to assert the
+  empty-state UX instead of the old `chain_step` placeholder count.
+
 ## [0.4.3] — 2026-04-14
 
 ### Fixed
@@ -416,7 +476,8 @@ Initial public release of protolab.
 - **React 19**, **React Flow 12**, **Zustand 5**, **CodeMirror 6**.
 - **vitest 2**, **@testing-library/react 16**, **Playwright 1.59**.
 
-[Unreleased]: https://github.com/panproto/protolab/compare/v0.4.3...HEAD
+[Unreleased]: https://github.com/panproto/protolab/compare/v0.4.4...HEAD
+[0.4.4]: https://github.com/panproto/protolab/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/panproto/protolab/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/panproto/protolab/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/panproto/protolab/compare/v0.4.0...v0.4.1

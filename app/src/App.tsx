@@ -31,6 +31,8 @@ import { DataPanel } from "./panels/DataPanel";
 import { KeyboardHelp } from "./panels/KeyboardHelp";
 import { SchemaViewerModal } from "./components/SchemaViewerModal";
 import { HintEditor } from "./components/HintEditor";
+import { TheoryDiffModal } from "./components/TheoryDiffModal";
+import { CanvasEmptyState } from "./components/CanvasEmptyState";
 import { useCircuitStore } from "./store/circuitStore";
 import { PresentationCanvas } from "./presentation/PresentationCanvas";
 import { PresentationToolbar } from "./presentation/PresentationToolbar";
@@ -153,7 +155,8 @@ function CircuitCanvas() {
   }, [selectNode, selectEdge]);
 
   return (
-    <div ref={reactFlowWrapper} style={{ flex: 1 }}>
+    <div ref={reactFlowWrapper} style={{ flex: 1, position: "relative" }}>
+      <CanvasEmptyState />
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -362,6 +365,7 @@ function GlobalModals() {
   const schemaViewerHandle = useCircuitStore((s) => s.schemaViewerHandle);
   const closeSchemaViewer = useCircuitStore((s) => s.closeSchemaViewer);
   const hintEditorOpen = useCircuitStore((s) => s.hintEditorOpen);
+  const theoryDiffOpen = useCircuitStore((s) => s.theoryDiffOpen);
   const importedSchemas = useCircuitStore((s) => s.importedSchemas);
   const viewerLabel =
     schemaViewerHandle === null
@@ -377,6 +381,7 @@ function GlobalModals() {
         />
       )}
       {hintEditorOpen && <HintEditor />}
+      {theoryDiffOpen && <TheoryDiffModal />}
     </>
   );
 }

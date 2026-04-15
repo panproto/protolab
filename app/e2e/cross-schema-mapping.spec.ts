@@ -39,54 +39,47 @@ async function assignSchema(
 }
 
 base.describe("cross-schema lens mapping", () => {
-  base("produces an editable circuit for theory-level diffs", async ({
+  base("surfaces the CanvasEmptyState with hint + theory-diff CTAs when no data-level mapping is inferred", async ({
     page,
   }) => {
-    // Start in edit mode so the Inspector schema forms are visible.
+    // v0.4.4: assigning two atproto schemas whose diff is purely
+    // theory-level (blue.2048 ↔ bsky.graph.verification) leaves the
+    // canvas empty on purpose. The user sees a prominent overlay with
+    // three clear next moves — Add hints (primary), View theory-level
+    // diff (secondary), drag from palette — rather than a chain of
+    // chain_step placeholders that would silently run as identity.
     await page.goto("/?mode=edit");
     await expect(page.getByText("protolab", { exact: true })).toBeVisible();
-    // The Inspector's CircuitInspector (which hosts the schema forms)
-    // only renders when no node/edge is selected. The demo circuit
-    // auto-loads nothing selected, but deselect defensively by pressing
-    // Escape — otherwise clicking in the canvas may select a node.
     await page.keyboard.press("Escape");
 
     await assignSchema(page, "source", SOURCE_NSID);
     await assignSchema(page, "target", TARGET_NSID);
 
-    // Auto-generation fires on target assignment. The regression was
-    // that zero nodes were installed here. We assert at least one
-    // component appears on the canvas — either a field-level component
-    // or a `chain_step` fallback, either is fine.
-    await expect(page.locator(".react-flow__node").first()).toBeVisible({
-      timeout: 15_000,
-    });
-    const nodeCount = await page.locator(".react-flow__node").count();
-    expect(nodeCount).toBeGreaterThan(0);
+    // Canvas is empty by design here.
+    const empty = page.getByTestId("canvas-empty-state");
+    await expect(empty).toBeVisible({ timeout: 15_000 });
+    await expect(empty).toContainText("No data-level mapping inferred");
+    await expect(empty.getByTestId("canvas-empty-add-hints")).toBeVisible();
+    await expect(empty.getByTestId("canvas-empty-view-diff")).toBeVisible();
+    await expect(page.locator(".react-flow__node")).toHaveCount(0);
   });
 
   base("validates output against the target schema after Run", async ({
     page,
   }) => {
-    // The demo circuit pre-assigns `source` only, not `target`, so
-    // validation wouldn't fire without assigning one. Point source and
-    // target at the same atproto NSID (identity-ish mapping) so the
-    // circuit definitely has a target handle wired up; validation then
-    // runs against that target after Run.
+    // Use identity mapping (same atproto NSID as source + target) so
+    // the data-level lens exists (identity), Run is enabled, and the
+    // validation badge fires. Disjoint-schema cases surface the
+    // CanvasEmptyState instead (covered above) and Run is disabled
+    // there — which is the correct v0.4.4 UX.
     await page.goto("/?mode=edit");
     await expect(page.getByText("protolab", { exact: true })).toBeVisible();
     await page.keyboard.press("Escape");
 
+    await assignSchema(page, "source", "app.bsky.feed.post");
     await assignSchema(page, "target", "app.bsky.feed.post");
 
-    // Input needs to be something the source schema can parse; pasting
-    // an empty object reliably produces output regardless of target.
-    const inputBox = page
-      .locator("textarea")
-      .filter({ hasText: /.*/ })
-      .first();
-    await inputBox.fill("{}");
-
+    await page.getByTestId("data-panel-input").fill("{}");
     await page.getByRole("button", { name: /Run/ }).click();
 
     const badge = page.getByTestId("output-validation-badge");

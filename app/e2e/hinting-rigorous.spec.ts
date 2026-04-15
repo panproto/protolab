@@ -256,6 +256,88 @@ base.describe("hinted vs unguided lens generation", () => {
   });
 });
 
+base.describe("canvas empty state CTAs", () => {
+  base("clicking Add hints on the empty-state overlay opens the HintEditor", async ({
+    page,
+  }) => {
+    await setupSession(page, [
+      "blue.2048.verification.stats",
+      "app.bsky.graph.verification",
+    ]);
+    const src = await importLexiconViaStore(page, "blue.2048.verification.stats");
+    const tgt = await importLexiconViaStore(page, "app.bsky.graph.verification");
+    await page.evaluate(
+      ({ src, tgt }) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const store = (window as any).__protolabStore;
+        store.getState().assignSourceSchema(src);
+        store.getState().assignTargetSchema(tgt);
+      },
+      { src, tgt },
+    );
+    const overlay = page.getByTestId("canvas-empty-state");
+    await expect(overlay).toBeVisible();
+    await overlay.getByTestId("canvas-empty-add-hints").click();
+    await expect(page.getByTestId("hint-editor-modal")).toBeVisible();
+  });
+
+  base("clicking View theory-level diff opens the TheoryDiffModal with chain steps listed", async ({
+    page,
+  }) => {
+    await setupSession(page, [
+      "blue.2048.verification.stats",
+      "app.bsky.graph.verification",
+    ]);
+    const src = await importLexiconViaStore(page, "blue.2048.verification.stats");
+    const tgt = await importLexiconViaStore(page, "app.bsky.graph.verification");
+    await page.evaluate(
+      ({ src, tgt }) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const store = (window as any).__protolabStore;
+        store.getState().assignSourceSchema(src);
+        store.getState().assignTargetSchema(tgt);
+      },
+      { src, tgt },
+    );
+    const overlay = page.getByTestId("canvas-empty-state");
+    await expect(overlay).toBeVisible();
+    await overlay.getByTestId("canvas-empty-view-diff").click();
+    const modal = page.getByTestId("theory-diff-modal");
+    await expect(modal).toBeVisible();
+    // Must list at least one step — the whole point of showing the
+    // empty state is that there WAS a theory-level chain derived.
+    await expect(
+      modal.getByTestId("theory-diff-step").first(),
+    ).toBeVisible();
+  });
+
+  base("Run is disabled when no data-level mapping is inferred", async ({
+    page,
+  }) => {
+    // Disabling Run is the counterpart to the empty-state overlay:
+    // prevents the user from hitting it anyway and getting the old
+    // "identity output with a red validation badge" UX. v0.4.4.
+    await setupSession(page, [
+      "blue.2048.verification.stats",
+      "app.bsky.graph.verification",
+    ]);
+    const src = await importLexiconViaStore(page, "blue.2048.verification.stats");
+    const tgt = await importLexiconViaStore(page, "app.bsky.graph.verification");
+    await page.evaluate(
+      ({ src, tgt }) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const store = (window as any).__protolabStore;
+        store.getState().assignSourceSchema(src);
+        store.getState().assignTargetSchema(tgt);
+      },
+      { src, tgt },
+    );
+    await expect(page.getByTestId("canvas-empty-state")).toBeVisible();
+    const run = page.getByRole("button", { name: /Run/ });
+    await expect(run).toBeDisabled();
+  });
+});
+
 base.describe("UI smoke: hint editor + viewer wire to store", () => {
   base("opening the hint editor + adding an anchor row updates state", async ({
     page,

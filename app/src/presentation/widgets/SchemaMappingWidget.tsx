@@ -19,6 +19,9 @@ export function SchemaMappingWidget(_props: WidgetProps) {
   const targetHandle = useCircuitStore((s) => s.targetSchemaHandle);
   const openSchemaViewer = useCircuitStore((s) => s.openSchemaViewer);
   const openHintEditor = useCircuitStore((s) => s.openHintEditor);
+  const openTheoryDiff = useCircuitStore((s) => s.openTheoryDiff);
+  const nodeCount = useCircuitStore((s) => s.nodes.length);
+  const chainStepCount = useCircuitStore((s) => s.autoLensChainSteps.length);
   const hints = useCircuitStore((s) => s.autoLensHints);
   const hasHints = Object.keys(hints.anchors ?? {}).length > 0
     || (hints.excluded_sources?.length ?? 0) > 0
@@ -26,6 +29,114 @@ export function SchemaMappingWidget(_props: WidgetProps) {
 
   if (!mapping || status !== "success") {
     return null;
+  }
+
+  // When no data-level mapping was inferred (empty circuit but a
+  // non-empty theory-level chain), show the same prominent empty
+  // state as the edit-mode canvas. Instance-level and theory-level
+  // information must not share a pane — that was the old confusion.
+  const noDataLevelMapping =
+    nodeCount === 0 &&
+    chainStepCount > 0 &&
+    sourceHandle !== null &&
+    targetHandle !== null;
+
+  if (noDataLevelMapping) {
+    return (
+      <div
+        data-widget="schema_mapping"
+        data-state="empty"
+        style={{
+          padding: 20,
+          background: "oklch(0.13 0.01 250)",
+          border: "1px solid oklch(0.25 0.01 250)",
+          borderRadius: 6,
+          textAlign: "center",
+          color: "#ddd",
+        }}
+      >
+        <div aria-hidden="true" style={{ fontSize: 32, marginBottom: 6 }}>
+          🧭
+        </div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: "#fff", marginBottom: 4 }}>
+          No data-level mapping inferred
+        </div>
+        <div style={{ fontSize: 11, color: "#aaa", lineHeight: 1.5, marginBottom: 14 }}>
+          panproto couldn't derive a transform between these schemas
+          automatically. Tell the system which fields correspond to
+          guide the search.
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <button
+            onClick={openHintEditor}
+            data-testid="mapping-empty-add-hints"
+            style={{
+              padding: "8px 14px",
+              background: "#9C27B0",
+              color: "#fff",
+              border: "none",
+              borderRadius: 5,
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            🎯 Add hints to guide the search
+          </button>
+          <button
+            onClick={openTheoryDiff}
+            data-testid="mapping-empty-view-diff"
+            style={{
+              padding: "6px 12px",
+              background: "oklch(0.22 0.01 250)",
+              color: "#ccc",
+              border: "1px solid oklch(0.35 0.01 250)",
+              borderRadius: 5,
+              fontSize: 11,
+              cursor: "pointer",
+            }}
+          >
+            View theory-level diff
+          </button>
+          <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+            {sourceHandle !== null && (
+              <button
+                onClick={() => openSchemaViewer(sourceHandle)}
+                style={{
+                  flex: 1,
+                  padding: "4px 8px",
+                  background: "transparent",
+                  color: "#888",
+                  border: "1px solid oklch(0.3 0.01 250)",
+                  borderRadius: 3,
+                  fontSize: 10,
+                  cursor: "pointer",
+                }}
+              >
+                View source schema
+              </button>
+            )}
+            {targetHandle !== null && (
+              <button
+                onClick={() => openSchemaViewer(targetHandle)}
+                style={{
+                  flex: 1,
+                  padding: "4px 8px",
+                  background: "transparent",
+                  color: "#888",
+                  border: "1px solid oklch(0.3 0.01 250)",
+                  borderRadius: 3,
+                  fontSize: 10,
+                  cursor: "pointer",
+                }}
+              >
+                View target schema
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
   }
 
   // Survival ratio is a useful proxy for alignment quality at the UI
@@ -144,6 +255,16 @@ export function SchemaMappingWidget(_props: WidgetProps) {
               style={linkBtn}
             >
               View target
+            </button>
+          )}
+          {chainStepCount > 0 && (
+            <button
+              onClick={openTheoryDiff}
+              title="Inspect the theory-level chain panproto derived"
+              data-testid="mapping-view-theory-diff"
+              style={linkBtn}
+            >
+              Theory diff
             </button>
           )}
           {sourceHandle !== null && targetHandle !== null && (

@@ -127,18 +127,15 @@ base.describe("source = OpenAPI, target = atproto", () => {
     // Either success (chain produced) or failed (no morphism) — both
     // are valid non-hung outcomes. Hung would be status === "idle".
     expect(["success", "failed"]).toContain(status);
-    // If it succeeded, Running doesn't throw.
+    // On success, the UX shows EITHER circuit components (data-level
+    // mapping was derived) OR the CanvasEmptyState overlay (only
+    // theory-level diff). Both are correct non-hung outcomes. Assert
+    // one of them is visible — `.or.` avoids flakiness on whichever
+    // path panproto takes for this particular schema pair.
     if (status === "success") {
-      await page.getByTestId("data-panel-input").fill("{}");
-      await page.getByRole("button", { name: /Run/ }).click();
-      const evalError = await page.evaluate(
-        () =>
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (window as any).__protolabStore.getState().evaluationError,
-      );
-      // Evaluation may fail for input that doesn't match, but it must
-      // not hang — evalError is either null or a string.
-      expect(evalError === null || typeof evalError === "string").toBe(true);
+      const hasNodes = page.locator(".react-flow__node").first();
+      const emptyState = page.getByTestId("canvas-empty-state");
+      await expect(hasNodes.or(emptyState)).toBeVisible({ timeout: 10_000 });
     }
   });
 });
