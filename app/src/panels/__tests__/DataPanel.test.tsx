@@ -8,7 +8,19 @@ import { resetMockBridge } from "../../test/wasmBridgeMock";
 function resetStore(overrides: Partial<ReturnType<typeof useCircuitStore.getState>> = {}) {
   useCircuitStore.setState(
     {
-      nodes: [],
+      // Default state includes one placeholder circuit node so the
+      // store-derived `hasDataLevelMapping` returns true and Run is
+      // enabled. Tests that want to assert the no-mapping disabled
+      // state pass `nodes: []` explicitly.
+      nodes: [
+        {
+          id: "n_test",
+          type: "component",
+          position: { x: 0, y: 0 },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          data: { label: "test" } as any,
+        },
+      ],
       edges: [],
       loading: false,
       error: null,

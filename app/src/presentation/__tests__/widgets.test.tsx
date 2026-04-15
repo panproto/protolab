@@ -373,7 +373,15 @@ describe("RunButtonWidget", () => {
   });
 
   it("calls runEvaluation from the store when clicked", () => {
-    resetStore({ circuitHandle: 1, sourceSchemaHandle: 1, inputDataJson: "{}" });
+    resetStore({
+      circuitHandle: 1,
+      sourceSchemaHandle: 1,
+      inputDataJson: "{}",
+      // hasDataLevelMapping requires at least one circuit node when
+      // there's no target schema (the manual-circuit path).
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      nodes: [{ id: "n1", type: "component", position: { x: 0, y: 0 }, data: {} as any }],
+    });
     const w = makeWidget({ kind: "run_button", props: { label: "Run" } });
     render(<RunButtonWidget widget={w} />);
     fireEvent.click(screen.getByRole("button"));
@@ -404,7 +412,13 @@ describe("RunButtonWidget", () => {
   });
 
   it("clicking with valid circuit and schema populates outputDataJson", () => {
-    resetStore({ circuitHandle: 1, sourceSchemaHandle: 1, inputDataJson: "{}" });
+    resetStore({
+      circuitHandle: 1,
+      sourceSchemaHandle: 1,
+      inputDataJson: "{}",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      nodes: [{ id: "n1", type: "component", position: { x: 0, y: 0 }, data: {} as any }],
+    });
     const w = makeWidget({ kind: "run_button", props: { label: "Run" } });
     render(<RunButtonWidget widget={w} />);
     fireEvent.click(screen.getByRole("button"));
