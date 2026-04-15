@@ -170,6 +170,7 @@ fn get_circuit_graph_inner(handle: u32) -> Result<Vec<u8>, WasmError> {
                 mergers: Default::default(),
                 defaults: Default::default(),
                 policies: Default::default(),
+                entries: Vec::new(),
                 outgoing: Default::default(),
                 incoming: Default::default(),
                 between: Default::default(),
@@ -2150,6 +2151,10 @@ fn build_user_schema() -> panproto_schema::Schema {
         mergers: HashMap::new(),
         defaults: HashMap::new(),
         policies: HashMap::new(),
+        // panproto v0.32.0 pointed-schemas: declare the demo's basepoint
+        // explicitly so primary_entry returns "user" instead of falling
+        // through to the topology heuristic.
+        entries: vec![Name::from("user")],
         outgoing,
         incoming,
         between,
@@ -3488,6 +3493,7 @@ mod tests {
             mergers: HashMap::new(),
             defaults: HashMap::new(),
             policies: HashMap::new(),
+            entries: vec![Name::from("root")],
             outgoing,
             incoming,
             between,

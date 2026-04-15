@@ -261,6 +261,7 @@ mod tests {
             mergers: HashMap::new(),
             defaults: HashMap::new(),
             policies: HashMap::new(),
+            entries: Vec::new(),
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: HashMap::new(),

@@ -119,6 +119,7 @@ fn build_user_schema() -> Schema {
         mergers: HashMap::new(),
         defaults: HashMap::new(),
         policies: HashMap::new(),
+        entries: vec![Name::from("user")],
         outgoing,
         incoming,
         between,

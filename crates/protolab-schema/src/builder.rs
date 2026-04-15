@@ -234,6 +234,12 @@ impl CircuitBuilder {
             mergers: HashMap::new(),
             defaults: HashMap::new(),
             policies: HashMap::new(),
+            // panproto v0.32.0 made schemas pointed: `entries` is the
+            // basepoint family. Circuit schemas don't have meaningful
+            // entries (the "root" vertex is computed by graph topology
+            // when needed), so leave the vector empty and let the
+            // legacy `primary_entry` fallback pick a topological root.
+            entries: Vec::new(),
             outgoing: self.outgoing,
             incoming: self.incoming,
             between: self.between,

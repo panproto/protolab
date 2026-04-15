@@ -1,0 +1,7 @@
+<svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+  <!-- Panproto favicon: red / amber / blue module bars -->
+  <rect width="32" height="32" rx="6" fill="#0c0b0a"/>
+  <rect x="3.5" y="5" width="6" height="22" rx="1" fill="#e63946"/>
+  <rect x="12.5" y="5" width="8" height="22" rx="1" fill="#e8a020"/>
+  <rect x="23.5" y="5" width="5" height="22" rx="1" fill="#4a90d9"/>
+</svg>

@@ -121,6 +121,7 @@ fn flat_schema(root: &str, fields: &[(&str, &str)]) -> Schema {
         mergers: HashMap::new(),
         defaults: HashMap::new(),
         policies: HashMap::new(),
+        entries: vec![Name::from(root)],
         outgoing,
         incoming,
         between,

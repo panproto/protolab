@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.5] — 2026-04-15
+
+### Changed
+
+- Upgrade panproto across the workspace from v0.30.1 → **v0.32.0**.
+  v0.32 makes schemas *pointed* — `Schema.entries: Vec<Name>` is the
+  basepoint family, materialised by every protocol parser per its
+  own semantics (atproto records / openapi paths / cddl rules /
+  avro top-level / etc.). The new
+  [`panproto_schema::primary_entry`] is the canonical way to pick a
+  parse root.
+- `protolab_eval::find_root_vertex` is now a thin wrapper over
+  `panproto_schema::primary_entry`. The old in-tree
+  "no-incoming-edges, prefer object kind" heuristic is gone — it
+  was the deterministic source of [panproto#35] (it landed on
+  `app.bsky.feed.post#replyRef` because the atproto parser left it
+  with no inbound edges; v0.32 fixes that with proper structural
+  ref edges, and the basepoint is now declared by the parser, not
+  inferred topologically).
+- Demo + circuit `Schema` constructors declare an explicit
+  `entries` family (`vec!["user"]` for the demo, empty for the
+  generic circuit schema where the topological fallback still does
+  the right thing).
+
+### Fixed
+
+- The `data-transformation.spec.ts` "validation badge resolves to
+  ✓ VALID" test no longer needs `testInfo.fail()`. With the
+  upstream parser fix and the basepoint API in place, validating a
+  canonical `app.bsky.feed.post` against its own schema now passes
+  — closes the gating note from [panproto#35].
+- App favicon: now points at `/favicon.svg` (copied from
+  panproto.github.io) and registered via `<link rel="icon" …>` in
+  `index.html`. Previously the protolab tab fell back to the
+  default browser globe.
+
+[panproto#35]: https://github.com/panproto/panproto/issues/35
+[`panproto_schema::primary_entry`]: https://docs.rs/panproto-schema/0.32.0/panproto_schema/fn.primary_entry.html
+
 ## [0.4.4] — 2026-04-14
 
 ### Changed
@@ -476,7 +515,8 @@ Initial public release of protolab.
 - **React 19**, **React Flow 12**, **Zustand 5**, **CodeMirror 6**.
 - **vitest 2**, **@testing-library/react 16**, **Playwright 1.59**.
 
-[Unreleased]: https://github.com/panproto/protolab/compare/v0.4.4...HEAD
+[Unreleased]: https://github.com/panproto/protolab/compare/v0.4.5...HEAD
+[0.4.5]: https://github.com/panproto/protolab/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/panproto/protolab/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/panproto/protolab/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/panproto/protolab/compare/v0.4.1...v0.4.2

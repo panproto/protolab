@@ -213,20 +213,14 @@ base.describe("Apply Back round-trip through rename_field", () => {
 base.describe("Validation badge reflects target-schema conformance", () => {
   base("output that matches the target schema resolves the badge to ✓ VALID", async ({
     page,
-  }, testInfo) => {
-    // Known panproto-side bug in v0.30.1: the atproto-lexicon parser
-    // (in panproto-protocols) hoists required edges from optional
-    // ref sub-objects onto the root. A canonical `app.bsky.feed.post`
-    // without a `reply` field correctly parses, but
-    // `panproto_inst::validate::validate_wtype` then reports
-    // MissingRequiredEdge for `parent` and `root` — which are
-    // required children of `app.bsky.feed.post#replyRef`, not of the
-    // record root (see check_required_edges at
-    // panproto-inst-0.30.1/src/validate.rs:112). The test stays as a
-    // regression detector; when the parser scopes required edges to
-    // their proper parent vertex, this passes and testInfo.fail()
-    // must be removed.
-    testInfo.fail();
+  }) => {
+    // panproto v0.32.0 fixed the upstream root-inference bug
+    // (panproto#35): the atproto parser now emits structural ref
+    // edges so `#replyRef` isn't an orphan, and every consumer uses
+    // `panproto_schema::primary_entry` to pick the parse root from a
+    // declared basepoint family rather than reinventing a heuristic.
+    // The previous testInfo.fail() gate is removed; this is a real
+    // regression detector again.
     await stubLexicons(page, ["app.bsky.feed.post"]);
     await page.goto("/?mode=edit");
     await expect(page.getByText("protolab", { exact: true })).toBeVisible();

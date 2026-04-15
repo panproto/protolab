@@ -293,25 +293,17 @@ fn component_to_field_transforms_inner(
     }
 }
 
-/// Find the root vertex of a schema (the one with no incoming edges).
-/// Prefers vertices of kind `"object"` if multiple roots exist.
+/// Find the root vertex of a schema. Delegates to
+/// [`panproto_schema::primary_entry`] (added in panproto v0.32.0),
+/// which canonicalises the basepoint via the schema's declared
+/// `entries` family and falls back to a topology-based heuristic
+/// only when entries weren't supplied. This replaces our own
+/// "no-incoming-edges, prefer object kind" heuristic that
+/// deterministically picked the wrong vertex on schemas like
+/// `app.bsky.feed.post` (it landed on `#replyRef` because it had no
+/// inbound arrow before the upstream parser fix in panproto#35).
 pub fn find_root_vertex(schema: &Schema) -> Option<Name> {
-    use std::collections::HashSet;
-    let targets: HashSet<&Name> = schema.edges.keys().map(|e| &e.tgt).collect();
-    let roots: Vec<Name> = schema
-        .vertices
-        .keys()
-        .filter(|v| !targets.contains(v))
-        .cloned()
-        .collect();
-    // Prefer object-kind vertices.
-    let object_root = roots.iter().find(|v| {
-        schema
-            .vertices
-            .get(*v)
-            .is_some_and(|vertex| vertex.kind.as_ref() == "object")
-    });
-    object_root.cloned().or_else(|| roots.into_iter().next())
+    panproto_schema::primary_entry(schema).cloned()
 }
 
 /// Map a single component to a `ProtolensChain` based on its type and params.
