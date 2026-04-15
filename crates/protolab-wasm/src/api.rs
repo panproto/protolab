@@ -534,8 +534,7 @@ pub fn export_schema_json(schema_handle: u32) -> Result<String, JsError> {
 
 fn export_schema_json_inner(schema_handle: u32) -> Result<String, WasmError> {
     let schema = slab::get_schema(schema_handle)?;
-    serde_json::to_string(&schema)
-        .map_err(|e| WasmError::SerializationFailed(e.to_string()))
+    serde_json::to_string(&schema).map_err(|e| WasmError::SerializationFailed(e.to_string()))
 }
 
 fn import_schema_json_inner(json_source: &str) -> Result<Vec<u8>, WasmError> {
@@ -1146,9 +1145,13 @@ fn auto_generate_and_store_inner(
     let identity_case = source_handle == target_handle
         || (diff_chain.steps.is_empty() && schemas_byte_equal(&source, &target));
 
-    let (chain, quality) = if !diff_chain.steps.is_empty() {
-        (diff_chain, 1.0)
-    } else if identity_case {
+    // Skip the morphism-search fallback when either (a) the diff
+    // already produced a non-empty protolens chain, or (b) we
+    // detected an identity case where the empty chain is itself the
+    // correct answer. Both paths return the diff_chain unchanged
+    // with full quality.
+    let skip_search = !diff_chain.steps.is_empty() || identity_case;
+    let (chain, quality) = if skip_search {
         (diff_chain, 1.0)
     } else {
         let config = AutoLensConfig {
@@ -1266,8 +1269,7 @@ fn auto_generate_with_hints_and_store_inner(
     // Identity short-circuit (mirrors the unguided path) so we never
     // invoke the constraint solver on a self-mapping — that previously
     // hung on real atproto schemas.
-    let identity_case = source_handle == target_handle
-        || schemas_byte_equal(&source, &target);
+    let identity_case = source_handle == target_handle || schemas_byte_equal(&source, &target);
 
     let (chain, lens, quality) = if identity_case {
         let chain = panproto_lens::protolens::ProtolensChain::new(vec![]);
@@ -1502,8 +1504,8 @@ fn get_schema_details_inner(schema_handle: u32) -> Result<Vec<u8>, WasmError> {
         .collect();
     edges.sort_by(|a, b| (a.src.as_str(), a.tgt.as_str()).cmp(&(b.src.as_str(), b.tgt.as_str())));
 
-    let root = protolab_eval::protolens_for_component::find_root_vertex(&schema)
-        .map(|n| n.to_string());
+    let root =
+        protolab_eval::protolens_for_component::find_root_vertex(&schema).map(|n| n.to_string());
 
     rmp_serde::to_vec_named(&SchemaDetails {
         protocol: schema.protocol.clone(),
@@ -1720,8 +1722,9 @@ fn install_field_level_components(
             // the end of this block before reading `comp_idx` below to
             // decide whether to fire the chain-step fallback.
             {
-            let mut add_comp =
-                |schema: &mut panproto_schema::Schema, comp_type: &str, params: &[(&str, &str)]| {
+                let mut add_comp = |schema: &mut panproto_schema::Schema,
+                                    comp_type: &str,
+                                    params: &[(&str, &str)]| {
                     let comp_id = format!("auto_{comp_idx}");
                     comp_idx += 1;
                     let ports = default_ports(&comp_id);
@@ -1745,70 +1748,70 @@ fn install_field_level_components(
                     prev_comp = Some(comp_id);
                 };
 
-            // Edge renames → rename_field components.
-            for (old_edge, new_edge) in &cm.edge_remap {
-                let old_name = old_edge
-                    .name
-                    .as_ref()
-                    .map(|n| n.to_string())
-                    .unwrap_or_default();
-                let new_name = new_edge
-                    .name
-                    .as_ref()
-                    .map(|n| n.to_string())
-                    .unwrap_or_default();
-                if old_name != new_name && !old_name.is_empty() && !new_name.is_empty() {
-                    add_comp(
-                        &mut state.schema,
-                        "rename_field",
-                        &[("old_name", &old_name), ("new_name", &new_name)],
-                    );
+                // Edge renames → rename_field components.
+                for (old_edge, new_edge) in &cm.edge_remap {
+                    let old_name = old_edge
+                        .name
+                        .as_ref()
+                        .map(|n| n.to_string())
+                        .unwrap_or_default();
+                    let new_name = new_edge
+                        .name
+                        .as_ref()
+                        .map(|n| n.to_string())
+                        .unwrap_or_default();
+                    if old_name != new_name && !old_name.is_empty() && !new_name.is_empty() {
+                        add_comp(
+                            &mut state.schema,
+                            "rename_field",
+                            &[("old_name", &old_name), ("new_name", &new_name)],
+                        );
+                    }
                 }
-            }
 
-            // Field transforms → corresponding component types.
-            for transforms in cm.field_transforms.values() {
-                for ft in transforms {
-                    match ft {
-                        panproto_inst::FieldTransform::RenameField { old_key, new_key } => {
-                            add_comp(
-                                &mut state.schema,
-                                "rename_field",
-                                &[("old_name", old_key), ("new_name", new_key)],
-                            );
-                        }
-                        panproto_inst::FieldTransform::DropField { key } => {
-                            add_comp(&mut state.schema, "drop_field", &[("field_name", key)]);
-                        }
-                        panproto_inst::FieldTransform::AddField { key, value } => {
-                            let val_str = format!("{value:?}");
-                            add_comp(
-                                &mut state.schema,
-                                "add_field",
-                                &[
-                                    ("field_name", key),
-                                    ("field_kind", "string"),
-                                    ("default", &val_str),
-                                ],
-                            );
-                        }
-                        panproto_inst::FieldTransform::ApplyExpr { key, .. } => {
-                            add_comp(&mut state.schema, "apply_expr", &[("field", key)]);
-                        }
-                        panproto_inst::FieldTransform::ComputeField { target_key, .. } => {
-                            add_comp(
-                                &mut state.schema,
-                                "compute_field",
-                                &[("target", target_key)],
-                            );
-                        }
-                        _ => {
-                            // Other transform types don't have a direct
-                            // component equivalent; skip for now.
+                // Field transforms → corresponding component types.
+                for transforms in cm.field_transforms.values() {
+                    for ft in transforms {
+                        match ft {
+                            panproto_inst::FieldTransform::RenameField { old_key, new_key } => {
+                                add_comp(
+                                    &mut state.schema,
+                                    "rename_field",
+                                    &[("old_name", old_key), ("new_name", new_key)],
+                                );
+                            }
+                            panproto_inst::FieldTransform::DropField { key } => {
+                                add_comp(&mut state.schema, "drop_field", &[("field_name", key)]);
+                            }
+                            panproto_inst::FieldTransform::AddField { key, value } => {
+                                let val_str = format!("{value:?}");
+                                add_comp(
+                                    &mut state.schema,
+                                    "add_field",
+                                    &[
+                                        ("field_name", key),
+                                        ("field_kind", "string"),
+                                        ("default", &val_str),
+                                    ],
+                                );
+                            }
+                            panproto_inst::FieldTransform::ApplyExpr { key, .. } => {
+                                add_comp(&mut state.schema, "apply_expr", &[("field", key)]);
+                            }
+                            panproto_inst::FieldTransform::ComputeField { target_key, .. } => {
+                                add_comp(
+                                    &mut state.schema,
+                                    "compute_field",
+                                    &[("target", target_key)],
+                                );
+                            }
+                            _ => {
+                                // Other transform types don't have a direct
+                                // component equivalent; skip for now.
+                            }
                         }
                     }
                 }
-            }
             } // drop `add_comp` closure → release borrow of comp_idx
 
             // Intentionally no fallback: when no field-level transforms
@@ -2362,12 +2365,11 @@ fn apply_modified_output_inner(
     // `with_resource_mut` and run the put/to_json pipeline in place.
     let restored_input_json = slab::with_resource_mut(circuit_handle, |r| match r {
         Resource::Circuit(state) => {
-            let eval = state
-                .last_eval
-                .as_ref()
-                .ok_or_else(|| WasmError::DeserializationFailed(
+            let eval = state.last_eval.as_ref().ok_or_else(|| {
+                WasmError::DeserializationFailed(
                     "no evaluation cache — run evaluate_circuit first".into(),
-                ))?;
+                )
+            })?;
             let tgt_schema = &eval.final_lens.tgt_schema;
             let root = protolab_eval::find_root_vertex(tgt_schema)
                 .map(|n| n.to_string())
@@ -4810,8 +4812,7 @@ mod tests {
         // bounded time and produces a 100%-survival mapping.
         let (h, sh) = build_demo_with_input("{}");
         let started = std::time::Instant::now();
-        let bytes = auto_generate_and_store_inner(h, sh, sh)
-            .expect("self-mapping should succeed");
+        let bytes = auto_generate_and_store_inner(h, sh, sh).expect("self-mapping should succeed");
         let elapsed = started.elapsed();
         assert!(
             elapsed.as_secs() < 5,
@@ -4856,7 +4857,9 @@ mod tests {
         let circuit = create_circuit();
         let import_bytes = parse_atproto_lexicon_inner(&payload).unwrap();
         #[derive(Deserialize)]
-        struct Imp { handle: u32 }
+        struct Imp {
+            handle: u32,
+        }
         let imp: Imp = rmp_serde::from_slice(&import_bytes).unwrap();
         let started = Instant::now();
         let result = auto_generate_and_store_inner(circuit, imp.handle, imp.handle);
