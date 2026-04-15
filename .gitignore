@@ -37,6 +37,8 @@ app/test-results/
 app/playwright-report/
 app/blob-report/
 app/playwright/.cache/
+test-results/
+playwright-report/
 
 # Vitest / coverage
 app/coverage/
