@@ -7,6 +7,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.3] — 2026-04-14
+
+### Fixed
+
+- Identity short-circuit in `auto_generate_and_store_inner` and
+  `_with_hints_and_store_inner`: when source and target schema
+  handles are equal (or the schemas are byte-equal), skip the
+  constraint-solver fallback and return the identity lens directly.
+  Previously self-mapping on a non-trivial atproto schema could
+  enter an exhaustive morphism search that did not terminate in
+  practice (observed > 5 min on `app.bsky.feed.post`). Pinned via
+  three Rust unit tests in `protolab-wasm`.
+
+### Added
+
+- `export_schema_json` + `exportSchemaJson` bridge: inverse of
+  `importSchema`/`parseAtprotoLexicon`. Lets tooling retag a parsed
+  schema under a different protocol or round-trip it through a DSL.
+- User-registered protocols appear in `list_supported_protocols`
+  under a `User-defined` category, making them selectable in the
+  SchemaImportWidget protocol dropdown.
+- Rigorous hermetic e2e suite (21 new tests, 83 total). All hit
+  lexicon.garden via cached fixtures (`e2e/fixtures/lexicons/*.json`
+  + `stubLexicons` helper) and complete in under 5 s each:
+  - `hinting-rigorous.spec.ts` (6 tests): verifies hint-guided
+    auto-lens on real atproto schemas. Covers the identity case,
+    disjoint schemas, and over-constraining anchors — asserting the
+    system surfaces an observable consequence (changed mapping or
+    `autoLensError`), never a silent no-op.
+  - `data-transformation.spec.ts` (5 tests): Lexicon Mapper output
+    asserted value-by-value against the documented shape (`body`,
+    `timestamp`, `charCount = body.length`, `source = "bluesky"`,
+    pass-through `langs`/`tags`). Apply Back round-trip strictly
+    reflects the edit. One case `testInfo.fail()`-gated to
+    [panproto#35].
+  - `mode-consistency.spec.ts` (4 tests): parameter edits in edit
+    mode are visible when Run fires in presentation; schema
+    assignments persist across Cmd+E toggle; hint spec persists;
+    circuit deletion is visible in the other mode.
+  - `cross-language.spec.ts` (3 tests): OpenAPI ↔ atproto; CDDL ↔
+    OpenAPI; atproto ↔ OpenAPI. All assert a non-hung outcome.
+  - `user-protocols.spec.ts` (4 tests): a user-registered protocol
+    appears in `listSupportedProtocols`; a CDDL source retagged
+    under a user-defined protocol assigns cleanly; two identical
+    CDDL schemas produce 100% survival.
+
+### Panproto issue filed
+
+- [panproto#35](https://github.com/panproto/panproto/issues/35):
+  required edges on optional ref sub-objects are hoisted to the
+  record root during atproto lexicon parsing. Reproducer +
+  tracking test in `data-transformation.spec.ts`.
+
 ## [0.4.2] — 2026-04-14
 
 ### Added
@@ -363,7 +416,8 @@ Initial public release of protolab.
 - **React 19**, **React Flow 12**, **Zustand 5**, **CodeMirror 6**.
 - **vitest 2**, **@testing-library/react 16**, **Playwright 1.59**.
 
-[Unreleased]: https://github.com/panproto/protolab/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/panproto/protolab/compare/v0.4.3...HEAD
+[0.4.3]: https://github.com/panproto/protolab/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/panproto/protolab/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/panproto/protolab/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/panproto/protolab/compare/v0.3.0...v0.4.0

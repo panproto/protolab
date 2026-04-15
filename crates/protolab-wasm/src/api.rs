@@ -523,6 +523,21 @@ pub fn import_schema_json(json_source: &str) -> Result<Vec<u8>, JsError> {
     import_schema_json_inner(json_source).map_err(Into::into)
 }
 
+/// Export a previously imported `Schema` back to its JSON
+/// representation. Inverse of `import_schema_json` via serde. Useful
+/// for tooling that wants to retag a schema under a different
+/// protocol or round-trip it through the DSL.
+#[wasm_bindgen]
+pub fn export_schema_json(schema_handle: u32) -> Result<String, JsError> {
+    export_schema_json_inner(schema_handle).map_err(Into::into)
+}
+
+fn export_schema_json_inner(schema_handle: u32) -> Result<String, WasmError> {
+    let schema = slab::get_schema(schema_handle)?;
+    serde_json::to_string(&schema)
+        .map_err(|e| WasmError::SerializationFailed(e.to_string()))
+}
+
 fn import_schema_json_inner(json_source: &str) -> Result<Vec<u8>, WasmError> {
     let schema: panproto_schema::Schema = serde_json::from_str(json_source)
         .map_err(|e| WasmError::DeserializationFailed(e.to_string()))?;
@@ -724,210 +739,246 @@ fn parse_json_protocol(
 /// selector dropdown.
 #[wasm_bindgen]
 pub fn list_supported_protocols() -> Result<Vec<u8>, JsError> {
+    /// Unified metadata shape: built-in entries are static; user-registered
+    /// entries are owned strings. `std::borrow::Cow` keeps both without
+    /// duplicating the static strings.
     #[derive(Serialize)]
     struct ProtocolMeta {
+        name: std::borrow::Cow<'static, str>,
+        category: std::borrow::Cow<'static, str>,
+        input_format: std::borrow::Cow<'static, str>,
+        description: std::borrow::Cow<'static, str>,
+    }
+    // Accept &'static str in the builtin table for ergonomics; wrap
+    // into Cow at the call site.
+    #[derive(Clone, Copy)]
+    struct BuiltinMeta {
         name: &'static str,
         category: &'static str,
         input_format: &'static str,
         description: &'static str,
     }
 
-    let protocols = vec![
+    let builtins: Vec<BuiltinMeta> = vec![
         // Web/Document
-        ProtocolMeta {
+        BuiltinMeta {
             name: "atproto",
             category: "Web/Document",
             input_format: "json",
             description: "AT Protocol lexicon schema",
         },
-        ProtocolMeta {
+        BuiltinMeta {
             name: "docx",
             category: "Web/Document",
             input_format: "json",
             description: "OOXML document schema",
         },
-        ProtocolMeta {
+        BuiltinMeta {
             name: "odf",
             category: "Web/Document",
             input_format: "json",
             description: "OpenDocument format schema",
         },
         // API
-        ProtocolMeta {
+        BuiltinMeta {
             name: "openapi",
             category: "API",
             input_format: "json",
             description: "OpenAPI / Swagger specification",
         },
-        ProtocolMeta {
+        BuiltinMeta {
             name: "asyncapi",
             category: "API",
             input_format: "json",
             description: "AsyncAPI specification",
         },
-        ProtocolMeta {
+        BuiltinMeta {
             name: "raml",
             category: "API",
             input_format: "json",
             description: "RAML API specification",
         },
-        ProtocolMeta {
+        BuiltinMeta {
             name: "jsonapi",
             category: "API",
             input_format: "json",
             description: "JSON:API resource schema",
         },
         // Serialization
-        ProtocolMeta {
+        BuiltinMeta {
             name: "avro",
             category: "Serialization",
             input_format: "json",
             description: "Apache Avro schema (avsc)",
         },
-        ProtocolMeta {
+        BuiltinMeta {
             name: "msgpack",
             category: "Serialization",
             input_format: "json",
             description: "MessagePack schema",
         },
-        ProtocolMeta {
+        BuiltinMeta {
             name: "asn1",
             category: "Serialization",
             input_format: "text",
             description: "ASN.1 notation",
         },
-        ProtocolMeta {
+        BuiltinMeta {
             name: "bond",
             category: "Serialization",
             input_format: "text",
             description: "Bond schema",
         },
-        ProtocolMeta {
+        BuiltinMeta {
             name: "flatbuffers",
             category: "Serialization",
             input_format: "text",
             description: "FlatBuffers schema (.fbs)",
         },
         // Data Schema
-        ProtocolMeta {
+        BuiltinMeta {
             name: "cddl",
             category: "Data Schema",
             input_format: "text",
             description: "CDDL schema",
         },
-        ProtocolMeta {
+        BuiltinMeta {
             name: "bson",
             category: "Data Schema",
             input_format: "json",
             description: "BSON schema",
         },
         // Database
-        ProtocolMeta {
+        BuiltinMeta {
             name: "mongodb",
             category: "Database",
             input_format: "json",
             description: "MongoDB $jsonSchema",
         },
-        ProtocolMeta {
+        BuiltinMeta {
             name: "dynamodb",
             category: "Database",
             input_format: "json",
             description: "DynamoDB table schema",
         },
-        ProtocolMeta {
+        BuiltinMeta {
             name: "cassandra",
             category: "Database",
             input_format: "text",
             description: "CQL schema (Cassandra)",
         },
-        ProtocolMeta {
+        BuiltinMeta {
             name: "neo4j",
             category: "Database",
             input_format: "text",
             description: "Cypher schema (Neo4j)",
         },
-        ProtocolMeta {
+        BuiltinMeta {
             name: "redis",
             category: "Database",
             input_format: "text",
             description: "Redis schema",
         },
         // Data Science
-        ProtocolMeta {
+        BuiltinMeta {
             name: "parquet",
             category: "Data Science",
             input_format: "json",
             description: "Parquet schema",
         },
-        ProtocolMeta {
+        BuiltinMeta {
             name: "arrow",
             category: "Data Science",
             input_format: "json",
             description: "Arrow schema",
         },
-        ProtocolMeta {
+        BuiltinMeta {
             name: "dataframe",
             category: "Data Science",
             input_format: "json",
             description: "DataFrame schema",
         },
         // Domain
-        ProtocolMeta {
+        BuiltinMeta {
             name: "geojson",
             category: "Domain",
             input_format: "json",
             description: "GeoJSON schema",
         },
-        ProtocolMeta {
+        BuiltinMeta {
             name: "fhir",
             category: "Domain",
             input_format: "json",
             description: "FHIR resource schema",
         },
-        ProtocolMeta {
+        BuiltinMeta {
             name: "rss_atom",
             category: "Domain",
             input_format: "json",
             description: "RSS / Atom feed schema",
         },
-        ProtocolMeta {
+        BuiltinMeta {
             name: "vcard_ical",
             category: "Domain",
             input_format: "json",
             description: "vCard / iCal schema",
         },
-        ProtocolMeta {
+        BuiltinMeta {
             name: "edi_x12",
             category: "Domain",
             input_format: "json",
             description: "EDI X12 schema",
         },
-        ProtocolMeta {
+        BuiltinMeta {
             name: "swift_mt",
             category: "Domain",
             input_format: "json",
             description: "SWIFT MT schema",
         },
         // Config
-        ProtocolMeta {
+        BuiltinMeta {
             name: "k8s_crd",
             category: "Config",
             input_format: "json",
             description: "Kubernetes CRD schema",
         },
-        ProtocolMeta {
+        BuiltinMeta {
             name: "cloudformation",
             category: "Config",
             input_format: "json",
             description: "CloudFormation schema",
         },
-        ProtocolMeta {
+        BuiltinMeta {
             name: "ansible",
             category: "Config",
             input_format: "json",
             description: "Ansible schema",
         },
     ];
+
+    // Merge user-registered protocols so they're pickable from the
+    // SchemaImportWidget. The registry is exposed via slab.
+    let user_names = slab::list_user_protocol_names();
+
+    let mut protocols: Vec<ProtocolMeta> = builtins
+        .iter()
+        .map(|b| ProtocolMeta {
+            name: std::borrow::Cow::Borrowed(b.name),
+            category: std::borrow::Cow::Borrowed(b.category),
+            input_format: std::borrow::Cow::Borrowed(b.input_format),
+            description: std::borrow::Cow::Borrowed(b.description),
+        })
+        .collect();
+    for name in user_names {
+        protocols.push(ProtocolMeta {
+            name: std::borrow::Cow::Owned(name),
+            category: std::borrow::Cow::Borrowed("User-defined"),
+            input_format: std::borrow::Cow::Borrowed("json"),
+            description: std::borrow::Cow::Borrowed(
+                "User-registered protocol (paste a schema JSON matching its shape)",
+            ),
+        });
+    }
 
     rmp_serde::to_vec_named(&protocols)
         .map_err(|e| JsError::new(&format!("serialize protocols: {e}")))
@@ -995,6 +1046,18 @@ pub fn auto_generate_with_hints_and_store(
     .map_err(Into::into)
 }
 
+/// Byte-equal schema comparison via msgpack so we don't need a
+/// custom Schema PartialEq implementation. Used as the second leg of
+/// the identity short-circuit in auto-generation: if the schemas are
+/// bit-for-bit equal there is nothing for the morphism search to
+/// discover and we can return an identity lens immediately.
+fn schemas_byte_equal(a: &panproto_schema::Schema, b: &panproto_schema::Schema) -> bool {
+    match (rmp_serde::to_vec(a), rmp_serde::to_vec(b)) {
+        (Ok(av), Ok(bv)) => av == bv,
+        _ => false,
+    }
+}
+
 fn auto_generate_and_store_inner(
     circuit_handle: u32,
     source_handle: u32,
@@ -1030,7 +1093,20 @@ fn auto_generate_and_store_inner(
     let diff_chain = diff_to_protolens(&diff_spec, &source, &target)
         .map_err(|e| WasmError::DeserializationFailed(format!("diff_to_protolens: {e}")))?;
 
+    // Identity short-circuit: when the schemas are byte-identical the
+    // `panproto_check::diff` returns empty, `diff_to_protolens` yields
+    // an empty chain (= identity lens), and there is nothing to align.
+    // Falling into `auto_generate` with `try_overlap: true` here can
+    // run the constraint solver exhaustively over a non-trivial
+    // schema-with-itself search and never terminate in practice
+    // (observed > 5 minutes on `app.bsky.feed.post`), so we skip the
+    // search and return the identity directly.
+    let identity_case = source_handle == target_handle
+        || (diff_chain.steps.is_empty() && schemas_byte_equal(&source, &target));
+
     let (chain, quality) = if !diff_chain.steps.is_empty() {
+        (diff_chain, 1.0)
+    } else if identity_case {
         (diff_chain, 1.0)
     } else {
         let config = AutoLensConfig {
@@ -1145,24 +1221,35 @@ fn auto_generate_with_hints_and_store_inner(
     };
     let (anchors, domain_constraints) = resolve_hints(&parts, &source, &target);
 
-    let config = AutoLensConfig {
-        try_overlap: true,
-        ..Default::default()
-    };
-    let result = auto_generate_with_hints(
-        &source,
-        &target,
-        &protocol,
-        &config,
-        &anchors,
-        &domain_constraints,
-        spec.quality_threshold,
-    )
-    .map_err(|e| WasmError::DeserializationFailed(format!("auto_generate_with_hints: {e}")))?;
+    // Identity short-circuit (mirrors the unguided path) so we never
+    // invoke the constraint solver on a self-mapping — that previously
+    // hung on real atproto schemas.
+    let identity_case = source_handle == target_handle
+        || schemas_byte_equal(&source, &target);
 
-    let chain = result.chain;
-    let lens = result.lens;
-    let quality = result.alignment_quality;
+    let (chain, lens, quality) = if identity_case {
+        let chain = panproto_lens::protolens::ProtolensChain::new(vec![]);
+        let lens = chain
+            .instantiate(&source, &protocol)
+            .map_err(|e| WasmError::DeserializationFailed(format!("identity instantiate: {e}")))?;
+        (chain, lens, 1.0_f64)
+    } else {
+        let config = AutoLensConfig {
+            try_overlap: true,
+            ..Default::default()
+        };
+        let result = auto_generate_with_hints(
+            &source,
+            &target,
+            &protocol,
+            &config,
+            &anchors,
+            &domain_constraints,
+            spec.quality_threshold,
+        )
+        .map_err(|e| WasmError::DeserializationFailed(format!("auto_generate_with_hints: {e}")))?;
+        (result.chain, result.lens, result.alignment_quality)
+    };
 
     let mapping = extract_schema_mapping(&lens, &source, &target);
 
@@ -4699,6 +4786,93 @@ mod tests {
     #[test]
     fn evaluate_expression_inner_returns_error_for_malformed_source() {
         assert!(evaluate_expression_inner("(((", "{}").is_err());
+    }
+
+    #[test]
+    fn auto_generate_with_identical_source_and_target_terminates_quickly() {
+        // Regression: assigning target = source previously caused the
+        // store-driven UI flow to hang. The bug, if any, is at the
+        // wasm layer — this test pins the contract that
+        // `auto_generate_and_store_inner(circuit, h, h)` returns in
+        // bounded time and produces a 100%-survival mapping.
+        let (h, sh) = build_demo_with_input("{}");
+        let started = std::time::Instant::now();
+        let bytes = auto_generate_and_store_inner(h, sh, sh)
+            .expect("self-mapping should succeed");
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed.as_secs() < 5,
+            "self-mapping took {elapsed:?} (>5s suggests a hang)"
+        );
+        // Decode the response and assert no source vertex was dropped.
+        #[derive(Deserialize)]
+        struct R {
+            schema_mapping: SchemaMappingDescOwned,
+        }
+        #[derive(Deserialize)]
+        struct SchemaMappingDescOwned {
+            removed_vertices: Vec<String>,
+        }
+        let r: R = rmp_serde::from_slice(&bytes).unwrap();
+        assert!(
+            r.schema_mapping.removed_vertices.is_empty(),
+            "self-mapping must not drop vertices, got {:?}",
+            r.schema_mapping.removed_vertices,
+        );
+    }
+
+    #[test]
+    fn auto_generate_with_atproto_self_mapping_terminates_quickly() {
+        // Exercises the exact path that hung in Playwright: import a
+        // real atproto lexicon, then map it to itself.
+        use std::time::Instant;
+        let post = include_str!("../../../app/e2e/fixtures/lexicons/app.bsky.feed.post.json");
+        // Strip the lexicon.garden envelope to feed the parser exactly
+        // what the wasm bridge constructs in `handleResolveAtproto`.
+        let envelope: serde_json::Value = serde_json::from_str(post).unwrap();
+        let payload = if envelope
+            .get("schema")
+            .and_then(|s| s.get("lexicon"))
+            .is_some()
+        {
+            envelope["schema"].to_string()
+        } else {
+            envelope.to_string()
+        };
+
+        let circuit = create_circuit();
+        let import_bytes = parse_atproto_lexicon_inner(&payload).unwrap();
+        #[derive(Deserialize)]
+        struct Imp { handle: u32 }
+        let imp: Imp = rmp_serde::from_slice(&import_bytes).unwrap();
+        let started = Instant::now();
+        let result = auto_generate_and_store_inner(circuit, imp.handle, imp.handle);
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed.as_secs() < 5,
+            "atproto self-mapping took {elapsed:?} (>5s suggests a hang)"
+        );
+        result.expect("self-mapping must succeed");
+    }
+
+    #[test]
+    fn auto_generate_with_hints_and_store_terminates_quickly() {
+        // Same regression target for the hinted variant, with an
+        // identity anchor. Both Rust and panproto dependencies must
+        // tolerate self-mapping under hints without recursion.
+        let (h, sh) = build_demo_with_input("{}");
+        let hints_json = r#"{"anchors":{"root":"root"}}"#;
+        let started = std::time::Instant::now();
+        let result = auto_generate_with_hints_and_store_inner(h, sh, sh, hints_json);
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed.as_secs() < 5,
+            "hinted self-mapping took {elapsed:?} (>5s suggests a hang)"
+        );
+        // Result shape may be Err if the anchor doesn't match an
+        // actual vertex name in the demo's source — that's OK; the
+        // contract here is "doesn't hang", not "always succeeds".
+        let _ = result;
     }
 
     #[test]

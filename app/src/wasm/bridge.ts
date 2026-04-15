@@ -47,6 +47,7 @@ import init, {
   validate_data_against_schema as validate_data_against_schema_wasm,
   auto_generate_with_hints_and_store as auto_generate_with_hints_and_store_wasm,
   get_schema_details as get_schema_details_wasm,
+  export_schema_json as export_schema_json_wasm,
 } from "./pkg/protolab_wasm.js";
 import { encode, decode } from "@msgpack/msgpack";
 
@@ -407,6 +408,15 @@ export interface SchemaDetails {
 export function getSchemaDetails(schemaHandle: number): SchemaDetails {
   const result = get_schema_details_wasm(schemaHandle);
   return decode(result) as SchemaDetails;
+}
+
+/**
+ * Export a previously imported Schema as its raw JSON (serde form).
+ * Inverse of `importSchema` — lets tooling retag a schema under a
+ * different protocol or round-trip it through a DSL.
+ */
+export function exportSchemaJson(schemaHandle: number): string {
+  return export_schema_json_wasm(schemaHandle);
 }
 
 export interface AutoLensEvalResult {

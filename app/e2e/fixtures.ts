@@ -8,6 +8,66 @@
  */
 
 import { test as base, expect, type Page } from "@playwright/test";
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+
+const FIXTURES_DIR = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "fixtures",
+  "lexicons",
+);
+
+/**
+ * Stub lexicon.garden routes so tests are hermetic and instant. Tests
+ * that hit network-resolved schemas should opt in by calling this
+ * helper with the NSIDs they need before navigating.
+ *
+ * Fixtures live in `e2e/fixtures/lexicons/*.json` — refresh them via
+ * `curl https://lexicon.garden/xrpc/com.atproto.lexicon.resolveLexicon?nsid=<n>`.
+ */
+export async function stubLexicons(page: Page, nsids: string[]) {
+  // Cache reads so concurrent route handlers share the same payload.
+  const cache = new Map<string, string>();
+  for (const nsid of nsids) {
+    cache.set(
+      nsid,
+      await readFile(join(FIXTURES_DIR, `${nsid}.json`), "utf8"),
+    );
+  }
+  await page.route(
+    "https://lexicon.garden/xrpc/com.atproto.lexicon.resolveLexicon**",
+    async (route) => {
+      const url = new URL(route.request().url());
+      const nsid = url.searchParams.get("nsid") ?? "";
+      const body = cache.get(nsid);
+      if (!body) {
+        await route.fulfill({ status: 404, body: `no fixture for ${nsid}` });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body,
+      });
+    },
+  );
+  // Autocomplete: return only the requested nsid as a single match,
+  // keeping the dropdown deterministic.
+  await page.route(
+    "https://lexicon.garden/api/autocomplete-nsid**",
+    async (route) => {
+      const url = new URL(route.request().url());
+      const q = url.searchParams.get("q") ?? "";
+      const matches = nsids.filter((n) => n.startsWith(q));
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(matches.map((nsid) => ({ nsid }))),
+      });
+    },
+  );
+}
 
 /**
  * Wait for the demo circuit to be fully mounted. The `initDemo` flow
@@ -26,6 +86,58 @@ export async function waitForDemoLoaded(page: Page) {
   });
   // And exactly 2 wires between them.
   await expect(page.locator(".react-flow__edge")).toHaveCount(2);
+}
+
+/**
+ * Drive the SchemaImportForm for one role to assign an atproto NSID
+ * via the (stubbed) lexicon.garden lookup. Rejects fast if the form
+ * doesn't transition to the assigned banner.
+ */
+export async function assignAtprotoSchema(
+  page: Page,
+  role: "source" | "target",
+  nsid: string,
+) {
+  // The Inspector shows the SchemaImportForm only when no node/edge
+  // is selected (otherwise it swaps to the per-node inspector). Other
+  // actions (assigning source schemas, etc.) can re-render React Flow
+  // and inadvertently select a node. Clear selection through the
+  // store to be robust regardless of how we got here.
+  await page.evaluate(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const store = (window as any).__protolabStore;
+    if (store) store.getState().selectNode(null);
+  });
+  const form = page
+    .locator(`[data-widget="schema_import"][data-role="${role}"]`)
+    .first();
+  await form.waitFor({ state: "visible", timeout: 5_000 });
+  const change = form.getByRole("button", { name: "Change" });
+  if (await change.isVisible().catch(() => false)) {
+    await change.click();
+    // Banner→input transition: wait for the form to actually re-render.
+    await form
+      .locator('input[aria-label="Lexicon NSID"]')
+      .waitFor({ state: "visible", timeout: 2_000 });
+  }
+  await form.locator('input[aria-label="Lexicon NSID"]').fill(nsid);
+  await form.getByRole("button", { name: "Resolve" }).click();
+  try {
+    await expect(form.getByRole("button", { name: "Change" })).toBeVisible({
+      timeout: 10_000,
+    });
+  } catch (err) {
+    // Surface the wasm-side error if there was one — `parseAtprotoLexicon`
+    // surfaces `WasmError` strings into `setStatus` which renders as
+    // `.fontSize: 10` text inside the form.
+    const formText = await form.textContent();
+    throw new Error(
+      `assignAtprotoSchema(${role}, ${nsid}) failed.\n` +
+        `Form text was: ${formText?.slice(0, 500)}\n` +
+        `Original error: ${(err as Error).message}`,
+    );
+  }
+  await expect(form).toContainText(nsid, { timeout: 10_000 });
 }
 
 export const test = base.extend<{ ready: Page }>({
