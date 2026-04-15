@@ -2,7 +2,7 @@
  * Inspector panel: shows details of selected node/edge, with editable params.
  */
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useCircuitStore, COMPONENT_CATALOG } from "../store/circuitStore";
 import type { ParamDef } from "../store/circuitStore";
 import * as wasm from "../wasm/bridge";
@@ -34,17 +34,7 @@ export function Inspector() {
   const selectedEdge = edges.find((e) => e.id === selectedEdgeId);
 
   return (
-    <div
-      style={{
-        width: 260,
-        background: "oklch(0.13 0.01 250)",
-        borderLeft: "1px solid oklch(0.25 0.01 250)",
-        overflow: "auto",
-        fontSize: 12,
-        color: "#ccc",
-        padding: "8px 10px",
-      }}
-    >
+    <InspectorShell>
       <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>Inspector</div>
 
       {selectedNode && <NodeInspector node={selectedNode} />}
@@ -59,6 +49,103 @@ export function Inspector() {
           protocols={importedProtocols}
         />
       )}
+    </InspectorShell>
+  );
+}
+
+const INSPECTOR_WIDTH_KEY = "protolab.inspectorWidth";
+const INSPECTOR_MIN = 240;
+const INSPECTOR_MAX = 640;
+const INSPECTOR_DEFAULT = 340;
+
+/**
+ * Inspector shell with a drag-to-resize left handle. Default width
+ * is 340px — wide enough to fit a fully-qualified atproto NSID
+ * like `blue.2048.verification.stats (atproto, 5V)` on one line
+ * without wrapping characters. The previous 260px width shattered
+ * names into one character per row. Width persists to
+ * localStorage so the user's preference survives reloads.
+ */
+function InspectorShell({ children }: { children: React.ReactNode }) {
+  const [width, setWidth] = useState<number>(() => {
+    if (typeof window === "undefined") return INSPECTOR_DEFAULT;
+    const saved = Number(window.localStorage.getItem(INSPECTOR_WIDTH_KEY));
+    if (Number.isFinite(saved) && saved >= INSPECTOR_MIN && saved <= INSPECTOR_MAX) {
+      return saved;
+    }
+    return INSPECTOR_DEFAULT;
+  });
+  const draggingRef = useRef(false);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!draggingRef.current) return;
+      // Inspector sits on the right edge; dragging the left handle
+      // means: width = distance from cursor to the right edge.
+      const next = Math.max(
+        INSPECTOR_MIN,
+        Math.min(INSPECTOR_MAX, window.innerWidth - e.clientX),
+      );
+      setWidth(next);
+    };
+    const onUp = () => {
+      if (draggingRef.current) {
+        draggingRef.current = false;
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+      }
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(INSPECTOR_WIDTH_KEY, String(width));
+    }
+  }, [width]);
+
+  return (
+    <div
+      style={{
+        width,
+        flexShrink: 0,
+        background: "oklch(0.13 0.01 250)",
+        borderLeft: "1px solid oklch(0.25 0.01 250)",
+        overflow: "auto",
+        fontSize: 12,
+        color: "#ccc",
+        padding: "8px 10px",
+        position: "relative",
+      }}
+    >
+      <div
+        role="separator"
+        aria-label="Resize inspector"
+        aria-orientation="vertical"
+        onMouseDown={(e) => {
+          e.preventDefault();
+          draggingRef.current = true;
+          document.body.style.cursor = "col-resize";
+          document.body.style.userSelect = "none";
+        }}
+        onDoubleClick={() => setWidth(INSPECTOR_DEFAULT)}
+        title="Drag to resize · double-click to reset"
+        style={{
+          position: "absolute",
+          top: 0,
+          bottom: 0,
+          left: -3,
+          width: 6,
+          cursor: "col-resize",
+          zIndex: 10,
+        }}
+      />
+      {children}
     </div>
   );
 }

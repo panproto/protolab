@@ -342,42 +342,57 @@ export function SchemaImportForm({
         <div
           style={{
             display: "flex",
-            alignItems: "center",
-            gap: 8,
+            flexDirection: "column",
+            gap: 6,
             padding: "6px 8px",
             background: "oklch(0.18 0.02 140)",
             border: "1px solid oklch(0.32 0.04 140)",
             borderRadius: 3,
+            // Contain the schema-name line width so the flex child's
+            // min-width can be 0 and ellipsis will actually apply.
+            minWidth: 0,
           }}
         >
-          <span style={{ fontSize: 11, color: "#98c379", flex: 1, wordBreak: "break-all" }}>
-            {assignedSchema.name}
-          </span>
-          <button
-            onClick={() => openSchemaViewer(assignedSchema.handle)}
-            title="Inspect this schema's vertices, edges, and constraints"
-            data-testid={`schema-viewer-open-${role}`}
-            style={miniBtnStyle}
+          <div
+            title={assignedSchema.name}
+            style={{
+              fontSize: 11,
+              color: "#98c379",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              minWidth: 0,
+            }}
           >
-            View
-          </button>
-          {otherSchemaHandle !== null && (
+            {assignedSchema.name}
+          </div>
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
             <button
-              onClick={openHintEditor}
-              title="Refine the auto-generated lens with hints"
-              data-testid={`hint-editor-open-${role}`}
+              onClick={() => openSchemaViewer(assignedSchema.handle)}
+              title="Inspect this schema's vertices, edges, and constraints"
+              data-testid={`schema-viewer-open-${role}`}
               style={miniBtnStyle}
             >
-              Hints
+              View
             </button>
-          )}
-          <button
-            onClick={clearAssignment}
-            title="Replace this schema"
-            style={miniBtnStyle}
-          >
-            Change
-          </button>
+            {otherSchemaHandle !== null && (
+              <button
+                onClick={openHintEditor}
+                title="Refine the auto-generated lens with hints"
+                data-testid={`hint-editor-open-${role}`}
+                style={miniBtnStyle}
+              >
+                Hints
+              </button>
+            )}
+            <button
+              onClick={clearAssignment}
+              title="Replace this schema"
+              style={miniBtnStyle}
+            >
+              Change
+            </button>
+          </div>
         </div>
       )}
 
