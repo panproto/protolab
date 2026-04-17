@@ -48,6 +48,7 @@ import init, {
   auto_generate_with_hints_and_store as auto_generate_with_hints_and_store_wasm,
   get_schema_details as get_schema_details_wasm,
   export_schema_json as export_schema_json_wasm,
+  auto_generate_candidates as auto_generate_candidates_wasm,
 } from "./pkg/protolab_wasm.js";
 import { encode, decode } from "@msgpack/msgpack";
 
@@ -417,6 +418,56 @@ export function getSchemaDetails(schemaHandle: number): SchemaDetails {
  */
 export function exportSchemaJson(schemaHandle: number): string {
   return export_schema_json_wasm(schemaHandle);
+}
+
+// ── Candidate API (v0.33.0) ──────────────────────────────────────────
+
+export type Stringency = "strict" | "balanced" | "lenient" | "exploratory";
+
+export interface CandidateOpts {
+  stringency?: Stringency;
+  top_n?: number;
+  anchors?: Record<string, string>;
+  excluded_sources?: string[];
+  excluded_targets?: string[];
+  scope_pairs?: Array<[string, string]>;
+}
+
+export interface CandidateStepDesc {
+  kind: string;
+  explanation: string;
+  confidence: number;
+  strategy: string | null;
+}
+
+export interface LensCandidateDesc {
+  quality: number;
+  coverage: number;
+  strategies_used: string[];
+  steps: CandidateStepDesc[];
+  lens_handle: number;
+}
+
+export interface CandidatesResponse {
+  candidates: LensCandidateDesc[];
+}
+
+/**
+ * Generate ranked lens candidates between source and target schemas
+ * at the given stringency. Each candidate carries quality, coverage,
+ * per-step explanations, and a `lens_handle` for evaluation.
+ */
+export function autoGenerateCandidates(
+  sourceHandle: number,
+  targetHandle: number,
+  opts: CandidateOpts = {},
+): CandidatesResponse {
+  const result = auto_generate_candidates_wasm(
+    sourceHandle,
+    targetHandle,
+    JSON.stringify(opts),
+  );
+  return decode(result) as CandidatesResponse;
 }
 
 export interface AutoLensEvalResult {

@@ -19,6 +19,7 @@
  */
 
 import { useCircuitStore } from "../store/circuitStore";
+import { StringencySelector, CandidateList } from "./CandidateList";
 
 export function CanvasEmptyState() {
   const shouldShow = useCircuitStore((s) => {
@@ -32,6 +33,7 @@ export function CanvasEmptyState() {
   });
   const openHintEditor = useCircuitStore((s) => s.openHintEditor);
   const openTheoryDiff = useCircuitStore((s) => s.openTheoryDiff);
+  const hasCandidates = useCircuitStore((s) => s.autoLensCandidates.length > 0);
 
   if (!shouldShow) return null;
 
@@ -136,9 +138,19 @@ export function CanvasEmptyState() {
             View theory-level diff
           </button>
         </div>
+        {hasCandidates && (
+          <div style={{ marginTop: 12, maxWidth: "100%" }}>
+            <CandidateList />
+          </div>
+        )}
+
+        <div style={{ marginTop: 12 }}>
+          <StringencySelector />
+        </div>
+
         <div
           style={{
-            marginTop: 16,
+            marginTop: 12,
             fontSize: 11,
             color: "#777",
             lineHeight: 1.5,

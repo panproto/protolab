@@ -59,7 +59,7 @@ export function Toolbar() {
   return (
     <div
       style={{
-        height: 40,
+        minHeight: 40,
         background: "oklch(0.12 0.01 250)",
         borderBottom: "1px solid oklch(0.25 0.01 250)",
         display: "flex",
@@ -68,6 +68,8 @@ export function Toolbar() {
         gap: 8,
         fontSize: 12,
         color: "#ccc",
+        flexWrap: "wrap",
+        overflow: "hidden",
       }}
     >
       <span style={{ fontWeight: 700, fontSize: 14, marginRight: 12 }}>protolab</span>

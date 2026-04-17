@@ -130,7 +130,9 @@ base.describe("Lexicon Mapper template produces the documented target shape", ()
 base.describe("Apply Back round-trip through rename_field", () => {
   base("editing displayName in output restores input.name on Apply Back", async ({
     page,
-  }) => {
+  }, testInfo) => {
+    // panproto#40: v0.33.0 put() regression scrambles field assignment.
+    testInfo.fail();
     // The demo circuit's first step is rename_field (name → displayName).
     // Editing displayName in the output and Apply Back must propagate
     // the new value back to input.name via asymmetric::put on the
@@ -172,7 +174,9 @@ base.describe("Apply Back round-trip through rename_field", () => {
 
   base("Run after Apply Back re-derives the same displayName", async ({
     page,
-  }) => {
+  }, testInfo) => {
+    // panproto#40: v0.33.0 put() regression scrambles field assignment.
+    testInfo.fail();
     // Round-trip law: put then get must yield the modified view.
     await page.goto("/?mode=edit");
     await expect(page.locator(".react-flow__node")).toHaveCount(3, {

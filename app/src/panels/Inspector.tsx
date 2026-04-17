@@ -9,6 +9,7 @@ import * as wasm from "../wasm/bridge";
 import { ExpressionEditor } from "../components/ExpressionEditor";
 import { SchemaImportForm } from "../presentation/widgets/SchemaImportWidget";
 import { SchemaMappingWidget } from "../presentation/widgets/SchemaMappingWidget";
+import { StringencySelector, CandidateList } from "../components/CandidateList";
 
 const OPTIC_COLORS: Record<string, string> = {
   iso: "#4CAF50",
@@ -111,6 +112,7 @@ function InspectorShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div
+      className="inspector-shell"
       style={{
         width,
         flexShrink: 0,
@@ -445,9 +447,13 @@ function CircuitInspector({
         <SchemaImportForm label="Target" role="target" compact />
       </div>
 
-      {/* Mirrored from presentation mode so edit-mode users have the
-          same alignment-quality + viewer + hint affordances when an
-          auto-lens is active. */}
+      {/* Stringency + Candidates when both schemas are assigned */}
+      <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+        <StringencySelector />
+        <CandidateList />
+      </div>
+
+      {/* Schema mapping panel */}
       <div style={{ marginTop: 12 }}>
         <SchemaMappingWidget
           widget={{ id: "edit-inspector-mapping", kind: "schema_mapping", props: {} }}

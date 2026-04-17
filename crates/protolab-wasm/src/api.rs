@@ -1030,6 +1030,32 @@ pub fn put_auto_lens(
 /// `hints_json` deserialises into `HintSpecJson` (see below). All
 /// fields are optional; an empty HintSpec degrades to plain
 /// auto-generation with `try_overlap`.
+///
+/// Ranked candidate lens generation (v0.33.0). Returns the top N
+/// candidates with quality, coverage, per-step explanations, and
+/// strategy provenance. The caller picks a candidate to install.
+///
+/// `opts_json` deserialises as:
+/// ```json
+/// {
+///   "stringency": "balanced",
+///   "top_n": 5,
+///   "anchors": { "src_vertex": "tgt_vertex" },
+///   "excluded_sources": [...],
+///   "excluded_targets": [...],
+///   "quality_threshold": 0.0
+/// }
+/// ```
+/// All fields optional; defaults: stringency=balanced, top_n=5.
+#[wasm_bindgen]
+pub fn auto_generate_candidates(
+    source_handle: u32,
+    target_handle: u32,
+    opts_json: &str,
+) -> Result<Vec<u8>, JsError> {
+    auto_generate_candidates_inner(source_handle, target_handle, opts_json).map_err(Into::into)
+}
+
 #[wasm_bindgen]
 pub fn auto_generate_with_hints_and_store(
     circuit_handle: u32,
@@ -1330,6 +1356,188 @@ fn auto_generate_with_hints_and_store_inner(
         graph,
     })
     .map_err(|e| WasmError::SerializationFailed(e.to_string()))
+}
+
+fn auto_generate_candidates_inner(
+    source_handle: u32,
+    target_handle: u32,
+    opts_json: &str,
+) -> Result<Vec<u8>, WasmError> {
+    use panproto_lens::Stringency;
+    use panproto_lens::auto_lens::auto_generate_candidates;
+    use panproto_lens::auto_lens::auto_generate_candidates_with_hints;
+    use panproto_lens::hint::{HintParts, resolve_hints};
+
+    let source = slab::get_schema(source_handle)?;
+    let target = slab::get_schema(target_handle)?;
+    let protocol = panproto_protocols_default(&source);
+
+    #[derive(serde::Deserialize, Default)]
+    struct Opts {
+        #[serde(default)]
+        stringency: Option<String>,
+        #[serde(default = "default_top_n")]
+        top_n: usize,
+        #[serde(default)]
+        anchors: std::collections::HashMap<String, String>,
+        #[serde(default)]
+        excluded_sources: Vec<String>,
+        #[serde(default)]
+        excluded_targets: Vec<String>,
+        #[serde(default)]
+        scope_pairs: Vec<(String, String)>,
+    }
+    fn default_top_n() -> usize {
+        5
+    }
+
+    let opts: Opts = serde_json::from_str(opts_json)
+        .map_err(|e| WasmError::DeserializationFailed(format!("opts: {e}")))?;
+
+    let stringency = match opts.stringency.as_deref() {
+        Some("strict") => Stringency::Strict,
+        Some("balanced") | None => Stringency::Balanced,
+        Some("lenient") => Stringency::Lenient,
+        Some("exploratory") => Stringency::Exploratory,
+        Some(other) => {
+            return Err(WasmError::DeserializationFailed(format!(
+                "unknown stringency: {other}"
+            )));
+        }
+    };
+
+    let config = panproto_lens::auto_lens::AutoLensConfig {
+        stringency,
+        try_overlap: true,
+        ..Default::default()
+    };
+    // Identity short-circuit: byte-equal schemas produce an empty
+    // candidate list with a single identity candidate.
+    if source_handle == target_handle || schemas_byte_equal(&source, &target) {
+        let chain = panproto_lens::protolens::ProtolensChain::new(vec![]);
+        let lens = chain
+            .instantiate(&source, &protocol)
+            .map_err(|e| WasmError::DeserializationFailed(format!("identity: {e}")))?;
+        let candidate = panproto_lens::candidate::LensCandidate {
+            chain,
+            lens,
+            quality: 1.0,
+            coverage: 1.0,
+            seed_anchors: vec![],
+            steps: vec![],
+            strategies_used: vec![],
+        };
+
+        let desc = candidate_to_desc(&candidate);
+        let lens_handle = slab::alloc(Resource::AutoLens(candidate.lens));
+        #[derive(Serialize)]
+        struct CandidatesResponseFull {
+            candidates: Vec<CandidateDescWithHandle>,
+        }
+        #[derive(Serialize)]
+        struct CandidateDescWithHandle {
+            #[serde(flatten)]
+            desc: CandidateDesc,
+            lens_handle: u32,
+        }
+        return rmp_serde::to_vec_named(&CandidatesResponseFull {
+            candidates: vec![CandidateDescWithHandle { desc, lens_handle }],
+        })
+        .map_err(|e| WasmError::SerializationFailed(e.to_string()));
+    }
+
+    let has_hints = !opts.anchors.is_empty()
+        || !opts.excluded_sources.is_empty()
+        || !opts.excluded_targets.is_empty()
+        || !opts.scope_pairs.is_empty();
+
+    let candidates = if has_hints {
+        let parts = HintParts {
+            anchors: opts.anchors,
+            scope_pairs: opts.scope_pairs,
+            excluded_targets: opts.excluded_targets,
+            excluded_sources: opts.excluded_sources,
+            scoring_weights: None,
+            name_similarity_threshold: None,
+        };
+        let (anchors, domain_constraints) = resolve_hints(&parts, &source, &target);
+        auto_generate_candidates_with_hints(
+            &source,
+            &target,
+            &protocol,
+            &config,
+            &anchors,
+            &domain_constraints,
+            opts.top_n,
+        )
+        .map_err(|e| WasmError::DeserializationFailed(format!("candidates_with_hints: {e}")))?
+    } else {
+        auto_generate_candidates(&source, &target, &protocol, &config, opts.top_n)
+            .map_err(|e| WasmError::DeserializationFailed(format!("candidates: {e}")))?
+    };
+
+    let descs: Vec<CandidateDesc> = candidates.iter().map(candidate_to_desc).collect();
+
+    // Store all candidate lenses in the slab so the frontend can
+    // evaluate any of them by handle.
+    let handles: Vec<u32> = candidates
+        .into_iter()
+        .map(|c| slab::alloc(Resource::AutoLens(c.lens)))
+        .collect();
+
+    #[derive(Serialize)]
+    struct CandidatesResponseFull {
+        candidates: Vec<CandidateDescWithHandle>,
+    }
+    #[derive(Serialize)]
+    struct CandidateDescWithHandle {
+        #[serde(flatten)]
+        desc: CandidateDesc,
+        lens_handle: u32,
+    }
+
+    let full: Vec<CandidateDescWithHandle> = descs
+        .into_iter()
+        .zip(handles)
+        .map(|(desc, lens_handle)| CandidateDescWithHandle { desc, lens_handle })
+        .collect();
+
+    rmp_serde::to_vec_named(&CandidatesResponseFull { candidates: full })
+        .map_err(|e| WasmError::SerializationFailed(e.to_string()))
+}
+
+#[derive(Serialize)]
+struct CandidateDesc {
+    quality: f64,
+    coverage: f64,
+    strategies_used: Vec<String>,
+    steps: Vec<CandidateStepDesc>,
+}
+
+#[derive(Serialize)]
+struct CandidateStepDesc {
+    kind: String,
+    explanation: String,
+    confidence: f64,
+    strategy: Option<String>,
+}
+
+fn candidate_to_desc(c: &panproto_lens::candidate::LensCandidate) -> CandidateDesc {
+    CandidateDesc {
+        quality: c.quality,
+        coverage: c.coverage,
+        strategies_used: c.strategies_used.iter().map(|s| format!("{s:?}")).collect(),
+        steps: c
+            .steps
+            .iter()
+            .map(|s| CandidateStepDesc {
+                kind: s.kind.clone(),
+                explanation: s.explanation.clone(),
+                confidence: s.confidence,
+                strategy: s.strategy.as_ref().map(|t| format!("{t:?}")),
+            })
+            .collect(),
+    }
 }
 
 fn evaluate_auto_lens_inner(lens_handle: u32, input_json: &str) -> Result<Vec<u8>, WasmError> {

@@ -8,24 +8,24 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.4.5"
+version = "0.5.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/panproto/protolab"
 
 [workspace.dependencies]
-panproto-schema = { git = "https://github.com/panproto/panproto.git", tag = "v0.32.0" }
-panproto-gat = { git = "https://github.com/panproto/panproto.git", tag = "v0.32.0" }
-panproto-lens = { git = "https://github.com/panproto/panproto.git", tag = "v0.32.0" }
-panproto-lens-dsl = { git = "https://github.com/panproto/panproto.git", tag = "v0.32.0" }
-panproto-protocols = { git = "https://github.com/panproto/panproto.git", tag = "v0.32.0" }
-panproto-inst = { git = "https://github.com/panproto/panproto.git", tag = "v0.32.0" }
-panproto-check = { git = "https://github.com/panproto/panproto.git", tag = "v0.32.0" }
-panproto-mig = { git = "https://github.com/panproto/panproto.git", tag = "v0.32.0" }
-panproto-expr = { git = "https://github.com/panproto/panproto.git", tag = "v0.32.0" }
-panproto-expr-parser = { git = "https://github.com/panproto/panproto.git", tag = "v0.32.0" }
-panproto-core = { git = "https://github.com/panproto/panproto.git", tag = "v0.32.0" }
-panproto-theory-dsl = { git = "https://github.com/panproto/panproto.git", tag = "v0.32.0" }
+panproto-schema = { git = "https://github.com/panproto/panproto.git", tag = "v0.33.0" }
+panproto-gat = { git = "https://github.com/panproto/panproto.git", tag = "v0.33.0" }
+panproto-lens = { git = "https://github.com/panproto/panproto.git", tag = "v0.33.0" }
+panproto-lens-dsl = { git = "https://github.com/panproto/panproto.git", tag = "v0.33.0" }
+panproto-protocols = { git = "https://github.com/panproto/panproto.git", tag = "v0.33.0" }
+panproto-inst = { git = "https://github.com/panproto/panproto.git", tag = "v0.33.0" }
+panproto-check = { git = "https://github.com/panproto/panproto.git", tag = "v0.33.0" }
+panproto-mig = { git = "https://github.com/panproto/panproto.git", tag = "v0.33.0" }
+panproto-expr = { git = "https://github.com/panproto/panproto.git", tag = "v0.33.0" }
+panproto-expr-parser = { git = "https://github.com/panproto/panproto.git", tag = "v0.33.0" }
+panproto-core = { git = "https://github.com/panproto/panproto.git", tag = "v0.33.0" }
+panproto-theory-dsl = { git = "https://github.com/panproto/panproto.git", tag = "v0.33.0" }
 
 # Internal crates
 protolab-schema = { path = "crates/protolab-schema" }

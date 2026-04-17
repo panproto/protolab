@@ -7,6 +7,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-04-17
+
+### Added
+
+- **panproto v0.33.0 integration** — the new Candidate API
+  (`auto_generate_candidates` / `auto_generate_candidates_with_hints`)
+  replaces the single-morphism auto-generation path. Each candidate
+  carries quality, coverage, per-step explanations, strategy
+  provenance, and a `lens_handle` for direct evaluation.
+- **Stringency selector** (Strict / Balanced / Lenient / Exploratory)
+  in the Inspector and CanvasEmptyState overlay. Changing stringency
+  re-runs candidate generation at the new tier. At **Lenient**, the
+  alias strategy recognizes `createdAt ≡ createdAt` automatically,
+  the token-similarity strategy handles casing variations, and span
+  search produces partial morphisms — **the original
+  `blue.2048.verification.stats → app.bsky.graph.verification` case
+  now produces at least one candidate with non-zero quality**, which
+  was the issue that started this entire thread.
+- **CandidateList + CandidateCard components** showing ranked
+  candidates with quality/coverage badges, strategy-tag chips, and
+  per-step explanations. Clicking a candidate selects it for
+  evaluation. Mounted in the Inspector, the CanvasEmptyState overlay,
+  and presentation mode.
+- **`auto_generate_candidates` wasm export** returning MessagePack-
+  encoded `{ candidates: Vec<CandidateDescWithHandle> }` with each
+  candidate's lens stored in the slab for direct evaluation.
+- **Mobile-responsive layout**: side panels (Palette, Inspector)
+  hidden at ≤768px; DataPanel stacks vertically; React Flow minimap
+  + controls hidden; toolbar flex-wraps instead of overflowing;
+  modals go full-width; touch targets enlarged. Presentation mode
+  already worked as a single column and now has explicit widget
+  border-radius + padding tuning at ≤640px.
+- 6 new rigorous e2e tests in `candidates-stringency.spec.ts`:
+  blue.2048 at Lenient produces candidates (the original issue);
+  Strict ≤ Lenient count monotonicity; identity → one 100%-quality
+  candidate; stringency selector updates store; mobile 375×812
+  viewport renders without horizontal overflow in both edit and
+  presentation modes.
+
+### Changed
+
+- panproto upgraded across the workspace from v0.32.0 → **v0.33.0**
+  (12 dependencies). See the [panproto v0.33.0 release
+  notes](https://github.com/panproto/panproto/releases/tag/v0.33.0)
+  for the full upstream changelog (Stringency axis, six alignment
+  strategies, sort coercion, span search, candidate API,
+  ComplementSpec serde rename).
+- `assignTargetSchema` now calls both `generateCandidates()` (the
+  v0.33.0 candidate path) and the legacy `autoGenerateLens()` for
+  backwards compatibility with the existing chain-steps / mapping
+  widget until the UI fully migrates.
+
+### Known issues
+
+- [panproto#40](https://github.com/panproto/panproto/issues/40):
+  v0.33.0 `put()` regression scrambles field assignment in backward
+  eval. The rename_field lens (name → displayName) backward-
+  evaluates "Bob" into the email slot instead of the name slot.
+  Three Apply Back e2e tests are gated behind `testInfo.fail()`
+  until upstream resolves. Forward eval is unaffected.
+
 ## [0.4.5] — 2026-04-15
 
 ### Changed
@@ -515,7 +576,8 @@ Initial public release of protolab.
 - **React 19**, **React Flow 12**, **Zustand 5**, **CodeMirror 6**.
 - **vitest 2**, **@testing-library/react 16**, **Playwright 1.59**.
 
-[Unreleased]: https://github.com/panproto/protolab/compare/v0.4.5...HEAD
+[Unreleased]: https://github.com/panproto/protolab/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/panproto/protolab/compare/v0.4.5...v0.5.0
 [0.4.5]: https://github.com/panproto/protolab/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/panproto/protolab/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/panproto/protolab/compare/v0.4.2...v0.4.3

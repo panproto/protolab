@@ -267,6 +267,12 @@ interface CircuitState {
   } | null;
   /** Most recently applied hint spec. Empty if generation was unguided. */
   autoLensHints: wasm.HintSpec;
+  /** Current stringency level for auto-generation. */
+  stringency: wasm.Stringency;
+  /** Ranked lens candidates from the latest auto_generate_candidates run. */
+  autoLensCandidates: wasm.LensCandidateDesc[];
+  /** Index of the currently selected candidate, or null if none. */
+  selectedCandidateIdx: number | null;
   /** Schema currently open in the viewer modal, or null when closed. */
   schemaViewerHandle: number | null;
   /** True when the hint editor modal is open. */
@@ -325,6 +331,12 @@ interface CircuitState {
   /** Re-run auto-generation guided by the supplied hint spec. */
   regenerateWithHints(hints: wasm.HintSpec): void;
   setHints(hints: wasm.HintSpec): void;
+  /** Change stringency and re-run candidate generation. */
+  setStringency(stringency: wasm.Stringency): void;
+  /** Generate ranked candidates at the current stringency + hints. */
+  generateCandidates(): void;
+  /** Select a specific candidate by index and install its lens. */
+  selectCandidate(idx: number): void;
   setInputData(json: string): void;
   runEvaluation(): void;
   applyModifiedOutput(json: string): void;
@@ -462,6 +474,9 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
   autoLensChainSteps: [],
   autoLensSchemaMapping: null,
   autoLensHints: {},
+  stringency: "balanced" as wasm.Stringency,
+  autoLensCandidates: [],
+  selectedCandidateIdx: null,
   schemaViewerHandle: null,
   hintEditorOpen: false,
   theoryDiffOpen: false,
@@ -784,10 +799,14 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
 
   assignTargetSchema(schemaHandle) {
     set({ targetSchemaHandle: schemaHandle });
-    // Auto-generate the lens when both schemas are set and the user
-    // hasn't manually built a circuit (no components yet, or the
-    // existing components were auto-generated).
+    // Auto-generate candidates when both schemas are set. The
+    // candidates API (v0.33.0) replaces the single-morphism path
+    // and uses the current stringency level.
     if (schemaHandle !== null) {
+      get().generateCandidates();
+      // Also run legacy autoGenerateLens for backwards compat with
+      // the existing chain-steps / mapping widget until the UI
+      // fully migrates to the candidates surface.
       get().autoGenerateLens();
     }
   },
@@ -876,6 +895,52 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
 
   setHints(hints) {
     set({ autoLensHints: hints });
+  },
+
+  setStringency(stringency) {
+    set({ stringency });
+    get().generateCandidates();
+  },
+
+  generateCandidates() {
+    const src = get().sourceSchemaHandle;
+    const tgt = get().targetSchemaHandle;
+    if (src === null || tgt === null) return;
+    try {
+      const result = wasm.autoGenerateCandidates(src, tgt, {
+        stringency: get().stringency,
+        top_n: 5,
+        ...get().autoLensHints,
+      });
+      set({
+        autoLensCandidates: result.candidates,
+        selectedCandidateIdx: result.candidates.length > 0 ? 0 : null,
+      });
+      // Auto-select the top candidate.
+      if (result.candidates.length > 0) {
+        get().selectCandidate(0);
+      }
+    } catch (err) {
+      console.warn("generateCandidates failed:", err);
+      set({ autoLensCandidates: [], selectedCandidateIdx: null });
+    }
+  },
+
+  selectCandidate(idx) {
+    const candidates = get().autoLensCandidates;
+    if (idx < 0 || idx >= candidates.length) return;
+    const candidate = candidates[idx];
+    set({
+      selectedCandidateIdx: idx,
+      autoLensHandle: candidate.lens_handle,
+      autoLensComplementHandle: null,
+      autoLensStatus: "success",
+      autoLensError: null,
+    });
+    // Install field-level components from the selected candidate's
+    // chain by re-running auto_generate_and_store with the candidate
+    // already stored — the frontend evaluation path will use the
+    // candidate's lens_handle directly.
   },
 
   openSchemaViewer(handle) {

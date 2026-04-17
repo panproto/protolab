@@ -6,3 +6,59 @@ body {
   margin: 0;
   font-family: "Berkeley Mono", "JetBrains Mono", "Fira Code", monospace;
 }
+
+/* ─── Mobile responsive ──────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  /* Edit mode: hide side panels and show only canvas + data */
+  [data-mode="edit"] .palette-panel {
+    display: none;
+  }
+  [data-mode="edit"] .inspector-shell {
+    display: none;
+  }
+  [data-mode="edit"] .data-panel {
+    height: auto;
+    max-height: 40vh;
+    overflow-y: auto;
+  }
+  [data-mode="edit"] .data-panel > div {
+    flex-direction: column !important;
+  }
+  /* Full-width modals */
+  [data-testid="schema-viewer-modal"],
+  [data-testid="hint-editor-modal"],
+  [data-testid="theory-diff-modal"] {
+    width: 100% !important;
+    max-width: 100vw !important;
+    max-height: 100vh !important;
+    border-radius: 0 !important;
+  }
+  /* Hide React Flow minimap + controls on mobile (too cluttered) */
+  .react-flow__minimap,
+  .react-flow__controls {
+    display: none !important;
+  }
+  /* Toolbar: allow wrapping; hide less-important buttons */
+  [data-mode="edit"] > div:first-child {
+    flex-wrap: wrap;
+    overflow: hidden;
+    max-height: 80px;
+  }
+  /* Canvas empty state: narrower padding on mobile */
+  [data-testid="canvas-empty-state"] > div {
+    max-width: 95vw !important;
+    padding: 16px !important;
+  }
+}
+
+/* Presentation mode is already single-column friendly. Ensure
+   widgets don't overflow on narrow viewports. */
+@media (max-width: 640px) {
+  [data-mode="presentation"] {
+    padding: 0 8px;
+  }
+  [data-widget] {
+    border-radius: 4px !important;
+  }
+}

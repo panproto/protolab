@@ -26,6 +26,7 @@ export function Palette() {
 
   return (
     <div
+      className="palette-panel"
       style={{
         width: 220,
         background: "oklch(0.13 0.01 250)",

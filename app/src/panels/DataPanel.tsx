@@ -73,6 +73,7 @@ export function DataPanel() {
 
   return (
     <div
+      className="data-panel"
       style={{
         height: 240,
         background: "oklch(0.11 0.01 250)",
