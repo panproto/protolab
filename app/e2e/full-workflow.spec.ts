@@ -31,11 +31,7 @@ test.describe("forward evaluation", () => {
 test.describe("backward evaluation (Apply Back)", () => {
   test("editing the output and applying back restores the input", async ({
     ready: page,
-  }, testInfo) => {
-    // panproto#40: v0.33.0 put() regression scrambles field assignment
-    // in backward eval. Gate until upstream fix. Remove testInfo.fail()
-    // when panproto#40 is resolved.
-    testInfo.fail();
+  }) => {
     // Run forward first to populate the output.
     await page.getByRole("button", { name: /Run/ }).click();
     await expect(

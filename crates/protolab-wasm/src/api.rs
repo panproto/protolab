@@ -314,6 +314,7 @@ fn bang_component_inner(handle: u32, component_id: &str) -> Result<String, WasmE
             state.last_eval = Some(slab::EvalCache {
                 final_lens: eval.final_lens,
                 final_complement: eval.complement,
+                final_view: eval.final_view,
                 wire_data_json,
                 output_json,
             });
@@ -1522,6 +1523,32 @@ struct CandidateStepDesc {
     strategy: Option<String>,
 }
 
+/// Convert a `serde_json::Value` to a `panproto_inst::value::Value`.
+/// Used when merging user JSON edits into a stored view instance.
+fn json_to_inst_value(val: &serde_json::Value) -> panproto_inst::value::Value {
+    use panproto_inst::value::Value;
+    match val {
+        serde_json::Value::Null => Value::Str(String::new()),
+        serde_json::Value::Bool(b) => Value::Bool(*b),
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                Value::Int(i)
+            } else if let Some(f) = n.as_f64() {
+                Value::Float(f)
+            } else {
+                Value::Str(n.to_string())
+            }
+        }
+        serde_json::Value::String(s) => Value::Str(s.clone()),
+        serde_json::Value::Array(arr) => Value::List(arr.iter().map(json_to_inst_value).collect()),
+        serde_json::Value::Object(map) => Value::Unknown(
+            map.iter()
+                .map(|(k, v)| (k.clone(), json_to_inst_value(v)))
+                .collect(),
+        ),
+    }
+}
+
 fn candidate_to_desc(c: &panproto_lens::candidate::LensCandidate) -> CandidateDesc {
     CandidateDesc {
         quality: c.quality,
@@ -2504,6 +2531,7 @@ fn evaluate_circuit_inner(circuit_handle: u32) -> Result<Vec<u8>, WasmError> {
             state.last_eval = Some(slab::EvalCache {
                 final_lens: eval.final_lens,
                 final_complement: eval.complement,
+                final_view: eval.final_view,
                 wire_data_json: wire_data_json.clone(),
                 output_json: output_json.clone(),
             });
@@ -2583,12 +2611,34 @@ fn apply_modified_output_inner(
                     "no evaluation cache — run evaluate_circuit first".into(),
                 )
             })?;
+            // Merge the user's JSON edits into the stored forward
+            // view instance rather than re-parsing from scratch. This
+            // preserves node IDs so put()'s complement lookup hits the
+            // primary `propagate_view_edits_through_inverse` path (the
+            // panproto#40 fix), not the fallback that doesn't handle
+            // RenameField inversions.
+            let mut view = eval.final_view.clone();
             let tgt_schema = &eval.final_lens.tgt_schema;
-            let root = protolab_eval::find_root_vertex(tgt_schema)
-                .map(|n| n.to_string())
-                .unwrap_or_else(|| "root".into());
-            let view = panproto_inst::parse::parse_json(tgt_schema, &root, &value)
-                .map_err(|e| WasmError::DeserializationFailed(format!("parse view: {e}")))?;
+            // Apply user edits: for each (key, value) in the user JSON
+            // that differs from the original view JSON, update the
+            // root node's extra_fields.
+            let original_json = panproto_inst::parse::to_json(tgt_schema, &view);
+            if let (Some(orig_obj), Some(user_obj)) = (original_json.as_object(), value.as_object())
+            {
+                {
+                    let root_id = view.root;
+                    if let Some(root_node) = view.nodes.get_mut(&root_id) {
+                        for (key, user_val) in user_obj {
+                            let orig_val = orig_obj.get(key);
+                            if orig_val != Some(user_val) {
+                                root_node
+                                    .extra_fields
+                                    .insert(key.clone(), json_to_inst_value(user_val));
+                            }
+                        }
+                    }
+                }
+            }
             let restored = put(&eval.final_lens, &view, &eval.final_complement)
                 .map_err(|e| WasmError::DeserializationFailed(format!("lens put: {e}")))?;
             let restored_value = panproto_inst::parse::to_json(&source_schema, &restored);
@@ -4815,15 +4865,35 @@ mod tests {
 
     #[test]
     fn apply_modified_output_inner_propagates_a_user_edit() {
-        let (h, sh) = build_demo_with_input(r#"{"name":"Dave","legacyId":1}"#);
+        // Use 4-field input (matching the default demo data) so we
+        // exercise pass-through fields (email, joinedAt) that revealed
+        // the scrambling in panproto#40.
+        let (h, sh) = build_demo_with_input(
+            r#"{"name":"Dave","legacyId":1,"email":"d@e.com","joinedAt":"2025-01-01"}"#,
+        );
         let bytes = evaluate_circuit_inner(h).unwrap();
         let r: EvalResult = rmp_serde::from_slice(&bytes).unwrap();
+        // Forward output should have displayName = "Dave" (rename).
+        assert!(
+            r.output.contains("Dave"),
+            "forward output missing Dave: {}",
+            r.output,
+        );
         // Edit the output: replace "Dave" with "EDITED".
         let edited = r.output.replace("Dave", "EDITED");
-        // We just need this to not panic; the iso-only portion of the
-        // chain (rename) should propagate the edit but the demo also has
-        // add/drop steps so we can't assume the full round-trip.
-        let _ = apply_modified_output_inner(h, &edited);
+        let restored =
+            apply_modified_output_inner(h, &edited).expect("apply_modified_output must succeed");
+        // The put must propagate the edit: input.name should be
+        // "EDITED" (the rename_field step's put reverses displayName
+        // → name). If name is something ELSE (email, legacyId),
+        // the put scrambled fields — this is the regression in
+        // panproto#40.
+        assert!(
+            restored.contains("EDITED"),
+            "put did not propagate the edit to input.name.\n\
+             Output sent to put:   {edited}\n\
+             Restored source:      {restored}",
+        );
         free_handle(h);
         free_handle(sh);
     }

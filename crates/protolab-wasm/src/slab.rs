@@ -72,6 +72,12 @@ impl CircuitState {
 pub struct EvalCache {
     pub final_lens: Lens,
     pub final_complement: Complement,
+    /// The view instance returned by the forward `get`, with original
+    /// node IDs intact. Used by `apply_modified_output` to merge user
+    /// edits back into the view preserving node-ID consistency with
+    /// the complement, so `put`'s `propagate_view_edits_through_inverse`
+    /// (the panproto#40 fix) fires on the primary path.
+    pub final_view: panproto_inst::WInstance,
     pub wire_data_json: std::collections::HashMap<String, String>,
     pub output_json: String,
 }
