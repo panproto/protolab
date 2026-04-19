@@ -32,12 +32,13 @@ pub struct ForwardEvaluation {
     pub wire_schemas: HashMap<String, Schema>,
     /// Stored complement from the full chain — used by backward pass.
     pub complement: Complement,
-    /// The forward view (output of `get`), with its original node IDs
-    /// intact. Stored so that `put` receives an instance whose IDs
-    /// match the complement's `original_extra_fields` — without this,
-    /// re-parsing the user's JSON via `parse_json` assigns fresh IDs
-    /// that don't match the complement, causing `put` to fall into the
-    /// fallback path that doesn't handle `RenameField` inversions.
+    /// The forward view (output of `get` on the final lens), with
+    /// original node IDs. Our per-step evaluation pipeline calls
+    /// `get()` at each component, producing complement node IDs that
+    /// correspond to the per-step view — NOT to a freshly-parsed view
+    /// from `parse_json`. Storing and modifying this view in-place
+    /// for `put()` ensures IDs match and v0.34.1's
+    /// `propagate_view_edits_through_inverse` fires correctly.
     pub final_view: panproto_inst::WInstance,
     /// Cached lens for backward pass (to avoid re-instantiating).
     pub final_lens: panproto_lens::Lens,
@@ -175,10 +176,6 @@ pub fn wire_data_for_circuit(
     install_field_transforms(&mut final_lens, &parent_vertex, &accumulated_transforms);
     let output_schema = final_lens.tgt_schema.clone();
 
-    // The final_view is the get() result BEFORE expression ops, so
-    // its node IDs match the complement's original_extra_fields keys.
-    // Capture it here; apply_modified_output merges user edits into
-    // this view (preserving IDs) rather than re-parsing from JSON.
     let final_view = {
         let (view, _) = get(&final_lens, input).map_err(|e| EvalError::Lens(e.to_string()))?;
         view

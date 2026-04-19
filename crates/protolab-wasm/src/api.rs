@@ -2611,30 +2611,36 @@ fn apply_modified_output_inner(
                     "no evaluation cache — run evaluate_circuit first".into(),
                 )
             })?;
-            // Merge the user's JSON edits into the stored forward
-            // view instance rather than re-parsing from scratch. This
-            // preserves node IDs so put()'s complement lookup hits the
-            // primary `propagate_view_edits_through_inverse` path (the
-            // panproto#40 fix), not the fallback that doesn't handle
-            // RenameField inversions.
-            let mut view = eval.final_view.clone();
             let tgt_schema = &eval.final_lens.tgt_schema;
-            // Apply user edits: for each (key, value) in the user JSON
-            // that differs from the original view JSON, update the
-            // root node's extra_fields.
+            // Merge user edits into the stored forward view rather
+            // than re-parsing from scratch. Two reasons:
+            //
+            // 1. Root inference: the target schema has no declared
+            //    `entries`, so `primary_entry` falls through to a
+            //    topology heuristic that picks the wrong vertex under
+            //    panproto v0.33+. Using `src_schema`'s root fixes the
+            //    parse root (panproto#40).
+            //
+            // 2. Node-ID consistency: protolab's per-step evaluation
+            //    pipeline calls `get()` at each component, producing
+            //    complement node IDs that correspond to the per-step
+            //    view. A freshly-parsed view from `parse_json` gets
+            //    different IDs, so v0.34.1's
+            //    `propagate_view_edits_through_inverse` misses the
+            //    complement snapshot and falls into the fallback that
+            //    doesn't handle RenameField inversions. Modifying the
+            //    stored `final_view` in-place preserves IDs.
+            let mut view = eval.final_view.clone();
             let original_json = panproto_inst::parse::to_json(tgt_schema, &view);
             if let (Some(orig_obj), Some(user_obj)) = (original_json.as_object(), value.as_object())
             {
-                {
-                    let root_id = view.root;
-                    if let Some(root_node) = view.nodes.get_mut(&root_id) {
-                        for (key, user_val) in user_obj {
-                            let orig_val = orig_obj.get(key);
-                            if orig_val != Some(user_val) {
-                                root_node
-                                    .extra_fields
-                                    .insert(key.clone(), json_to_inst_value(user_val));
-                            }
+                let root_id = view.root;
+                if let Some(root_node) = view.nodes.get_mut(&root_id) {
+                    for (key, user_val) in user_obj {
+                        if orig_obj.get(key) != Some(user_val) {
+                            root_node
+                                .extra_fields
+                                .insert(key.clone(), json_to_inst_value(user_val));
                         }
                     }
                 }
