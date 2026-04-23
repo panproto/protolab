@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Open Graph card (`app/public/og.png`, 1200×630) rendered from
+  `app/public/og.html` via headless Chrome. Depicts a three-node
+  `RenameField → MapItems → CoerceType` circuit in the app's actual
+  visual language, with a `protolab` wordmark and the tagline "a
+  patchbay for your schemas."
+- `og:*` and `twitter:*` meta tags in `app/index.html` pointing at
+  `https://panproto.dev/protolab/og.png` so rich embeds populate on
+  Twitter/X, Slack, LinkedIn, Discord, and iMessage.
+
+### Changed
+
+- README rewritten: trimmed feature-dump bullet lists, dropped the
+  self-congratulatory sections, kept the useful bits (component table,
+  install steps, project layout).
+
 ## [0.5.0] — 2026-04-17
 
 ### Added
