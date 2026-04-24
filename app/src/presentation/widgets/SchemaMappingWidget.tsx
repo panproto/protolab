@@ -55,9 +55,6 @@ export function SchemaMappingWidget(_props: WidgetProps) {
           color: "#ddd",
         }}
       >
-        <div aria-hidden="true" style={{ fontSize: 32, marginBottom: 6 }}>
-          🧭
-        </div>
         <div style={{ fontSize: 13, fontWeight: 600, color: "#fff", marginBottom: 4 }}>
           No data-level mapping inferred
         </div>
@@ -81,7 +78,7 @@ export function SchemaMappingWidget(_props: WidgetProps) {
               cursor: "pointer",
             }}
           >
-            🎯 Add hints to guide the search
+            Add hints to guide the search
           </button>
           <button
             onClick={openTheoryDiff}

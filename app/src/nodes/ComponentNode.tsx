@@ -232,7 +232,7 @@ export function ComponentNode({ data, selected }: NodeProps) {
         >
           <div style={{ fontWeight: 600 }}>{tooltip.id}</div>
           <div>
-            {tooltip.direction} · {tooltip.trigger === "hot" ? "⚡ hot" : "❄ cold"}
+            {tooltip.direction} · {tooltip.trigger === "hot" ? "hot" : "cold"}
           </div>
         </div>
       )}
