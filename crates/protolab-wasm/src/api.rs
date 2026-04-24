@@ -1230,6 +1230,34 @@ fn auto_generate_and_store_inner(
     // ── Step 3: extract schema mapping from CompiledMigration ──────
     let mapping = extract_schema_mapping(&lens, &source, &target);
 
+    // Coverage gate: if the only morphism the diff+alignment path
+    // found is "drop every source vertex, add every target vertex"
+    // (i.e. the two schemas share no structural overlap), the chain
+    // that survives is a DropOp/AddOp pile that's legal but useless
+    // — installing it as circuit components dumps a hundred "drop_op_
+    // prop" boxes onto the canvas and teaches the user nothing. The
+    // candidates API already rejects these upstream; this path has
+    // to mirror that check because the diff-based fallback here
+    // bypasses the candidates filter. Threshold and reasoning match
+    // `auto_generate_candidates_inner` so the two entry points agree
+    // on what "usable" means.
+    if !identity_case {
+        let surviving = mapping.surviving_vertices.len();
+        let total = source.vertex_count().max(target.vertex_count()).max(1);
+        #[allow(clippy::cast_precision_loss)]
+        let coverage = surviving as f64 / total as f64;
+        if coverage < 0.15 {
+            return Err(WasmError::DeserializationFailed(format!(
+                "auto-generate: no usable lens between schemas \
+                 (coverage {:.2} below 0.15 threshold — the only morphism \
+                 is drop-all/add-all, which would dump a {}-step \
+                 DropOp pile onto the canvas instead of a useful lens)",
+                coverage,
+                chain.steps.len(),
+            )));
+        }
+    }
+
     // ── Step 4: extract chain step descriptions ────────────────────
     let chain_steps: Vec<ChainStepDesc> = chain
         .steps
@@ -1354,6 +1382,29 @@ fn auto_generate_with_hints_and_store_inner(
     };
 
     let mapping = extract_schema_mapping(&lens, &source, &target);
+
+    // Same coverage gate as `auto_generate_and_store_inner`: block a
+    // drop-all/add-all chain from reaching the canvas. The hinted
+    // path can still produce a degenerate morphism when the user's
+    // anchors don't touch enough of the source — we don't want the
+    // user's click-to-pin workflow to dump a 100-step DropOp pile
+    // just because their one anchor left 99% of the source
+    // unmatched.
+    if !identity_case {
+        let surviving = mapping.surviving_vertices.len();
+        let total = source.vertex_count().max(target.vertex_count()).max(1);
+        #[allow(clippy::cast_precision_loss)]
+        let coverage = surviving as f64 / total as f64;
+        if coverage < 0.15 {
+            return Err(WasmError::DeserializationFailed(format!(
+                "auto-generate-with-hints: no usable lens between schemas \
+                 (coverage {:.2} below 0.15 threshold — pin more anchors \
+                 in the hint editor so the morphism covers something \
+                 other than drop-all/add-all)",
+                coverage,
+            )));
+        }
+    }
 
     let chain_steps: Vec<ChainStepDesc> = chain
         .steps

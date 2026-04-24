@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.4] — 2026-04-24
+
+### Fixed
+
+- **Coverage gate on the legacy auto-generate path.** v0.6.3 added
+  the "drop drop-all/add-all candidates below 0.15 coverage" filter
+  to `auto_generate_candidates_inner`, which is the candidates API
+  the Inspector's candidate list uses. But `assignTargetSchema`
+  ALSO calls a legacy `autoGenerateLens` that goes through
+  `auto_generate_and_store_inner` — a separate wasm entry that runs
+  `diff_to_protolens` + `auto_generate` (the pre-candidates single-
+  morphism API) and then installs every step as a canvas component
+  via `install_field_level_components`. That path bypassed the
+  0.15 filter, so mapping `app.bsky.feed.post → site.standard.document`
+  still produced a 123-step DropOp/AddOp pile on the canvas even
+  though the candidates surface correctly reported "no mapping
+  inferred". The same coverage gate (surviving ≥ 0.15 × max(|src|,
+  |tgt|)) now applies in `auto_generate_and_store_inner` and
+  `auto_generate_with_hints_and_store_inner` too, bailing before
+  `install_field_level_components` runs. The canvas empty-state
+  overlay is now the sole surface for the no-mapping case.
+
 ## [0.6.3] — 2026-04-24
 
 ### Fixed
