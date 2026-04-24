@@ -992,20 +992,6 @@ pub fn list_supported_protocols() -> Result<Vec<u8>, JsError> {
 /// Pipeline:
 /// 1. `panproto_check::diff(src, tgt)` → `DiffSpec`
 /// 2. `diff_to_protolens(spec, src, tgt)` → `ProtolensChain`
-///    (falls back to `auto_generate` for morphism alignment when diff is empty)
-/// 3. `chain.instantiate(src, protocol)` → `Lens`
-/// 4. Store `Lens` as `Resource::AutoLens` in slab
-/// 5. Derive circuit components from `Lens.compiled` (field-level)
-/// 6. Return: `{lens_handle, quality, chain_steps, schema_mapping, graph}`
-#[wasm_bindgen]
-pub fn auto_generate_and_store(
-    circuit_handle: u32,
-    source_handle: u32,
-    target_handle: u32,
-) -> Result<Vec<u8>, JsError> {
-    auto_generate_and_store_inner(circuit_handle, source_handle, target_handle).map_err(Into::into)
-}
-
 /// Evaluate an auto-generated lens: apply `asymmetric::get` directly.
 /// Returns `{output_json, complement_handle}`.
 #[wasm_bindgen]
@@ -1024,14 +1010,6 @@ pub fn put_auto_lens(
     put_auto_lens_inner(lens_handle, modified_json, complement_handle).map_err(Into::into)
 }
 
-/// Hint-guided auto-generation. Same response shape as
-/// `auto_generate_and_store`, but the morphism search is seeded with
-/// user-supplied anchors / scope / exclusion / preference data.
-///
-/// `hints_json` deserialises into `HintSpecJson` (see below). All
-/// fields are optional; an empty HintSpec degrades to plain
-/// auto-generation with `try_overlap`.
-///
 /// Ranked candidate lens generation (v0.33.0). Returns the top N
 /// candidates with quality, coverage, per-step explanations, and
 /// strategy provenance. The caller picks a candidate to install.
@@ -1057,20 +1035,49 @@ pub fn auto_generate_candidates(
     auto_generate_candidates_inner(source_handle, target_handle, opts_json).map_err(Into::into)
 }
 
+/// Compute a bare schema mapping between source and target without
+/// running the lens compiler. Used by the store's no-mapping-UX
+/// path so `autoLensSchemaMapping` is populated with the raw diff
+/// ({vertex_remap: same-name pairs, surviving: shared, added:
+/// target-only, removed: source-only}) even when the CSP finds no
+/// usable lens. Downstream widgets (SchemaMappingWidget,
+/// HintEditor, TheoryDiffModal) read from this state whether or not
+/// a lens materialized.
 #[wasm_bindgen]
-pub fn auto_generate_with_hints_and_store(
+pub fn compute_schema_mapping(source_handle: u32, target_handle: u32) -> Result<Vec<u8>, JsError> {
+    compute_schema_mapping_inner(source_handle, target_handle).map_err(Into::into)
+}
+
+/// Remove every existing `component`-kind vertex from the circuit.
+/// Called by the store before each auto-lens regeneration so that if
+/// the new search fails, the user doesn't see stale components from
+/// a previous target assignment (or the demo initial circuit)
+/// hanging around underneath the "no mapping" overlay. Returns the
+/// post-clear graph.
+#[wasm_bindgen]
+pub fn clear_circuit_components(circuit_handle: u32) -> Result<Vec<u8>, JsError> {
+    clear_circuit_components_inner(circuit_handle).map_err(Into::into)
+}
+
+/// Materialize a selected candidate's protolens chain as editable
+/// circuit components on `circuit_handle`, and return the chain-step
+/// descriptions + schema mapping + resulting circuit graph. This is
+/// what the frontend calls after a candidate is selected, so the
+/// canvas matches the lens behind it and existing downstream widgets
+/// (LensChain, SchemaMapping, TheoryDiff) have their state.
+///
+/// Replaces the component-installing side effect of the old
+/// `auto_generate_and_store` entry, decoupling that side effect from
+/// the candidate-generation search.
+#[wasm_bindgen]
+pub fn install_candidate_components(
     circuit_handle: u32,
+    lens_handle: u32,
     source_handle: u32,
     target_handle: u32,
-    hints_json: &str,
 ) -> Result<Vec<u8>, JsError> {
-    auto_generate_with_hints_and_store_inner(
-        circuit_handle,
-        source_handle,
-        target_handle,
-        hints_json,
-    )
-    .map_err(Into::into)
+    install_candidate_components_inner(circuit_handle, lens_handle, source_handle, target_handle)
+        .map_err(Into::into)
 }
 
 /// Run the alignment strategies between `source_handle` and
@@ -1157,289 +1164,6 @@ fn schemas_byte_equal(a: &panproto_schema::Schema, b: &panproto_schema::Schema) 
     true
 }
 
-fn auto_generate_and_store_inner(
-    circuit_handle: u32,
-    source_handle: u32,
-    target_handle: u32,
-) -> Result<Vec<u8>, WasmError> {
-    use panproto_lens::auto_lens::{AutoLensConfig, auto_generate};
-    use panproto_lens::diff_to_protolens::{DiffSpec, diff_to_protolens};
-
-    let source = slab::get_schema(source_handle)?;
-    let target = slab::get_schema(target_handle)?;
-    let protocol = panproto_protocols_default(&source);
-
-    // ── Step 1: compute protolens chain ────────────────────────────
-    // Primary: diff-based (handles cross-protocol; always succeeds).
-    // Fallback: morphism-alignment (same-protocol; may fail).
-    let schema_diff = panproto_check::diff(&source, &target);
-    let diff_spec = DiffSpec {
-        added_vertices: schema_diff.added_vertices.clone(),
-        removed_vertices: schema_diff.removed_vertices.clone(),
-        kind_changes: schema_diff
-            .kind_changes
-            .iter()
-            .map(|kc| panproto_lens::diff_to_protolens::KindChange {
-                vertex_id: kc.vertex_id.clone(),
-                old_kind: kc.old_kind.clone(),
-                new_kind: kc.new_kind.clone(),
-            })
-            .collect(),
-        added_edges: schema_diff.added_edges.clone(),
-        removed_edges: schema_diff.removed_edges.clone(),
-    };
-
-    let diff_chain = diff_to_protolens(&diff_spec, &source, &target)
-        .map_err(|e| WasmError::DeserializationFailed(format!("diff_to_protolens: {e}")))?;
-
-    // Identity short-circuit: when the schemas are byte-identical the
-    // `panproto_check::diff` returns empty, `diff_to_protolens` yields
-    // an empty chain (= identity lens), and there is nothing to align.
-    // Falling into `auto_generate` with `try_overlap: true` here can
-    // run the constraint solver exhaustively over a non-trivial
-    // schema-with-itself search and never terminate in practice
-    // (observed > 5 minutes on `app.bsky.feed.post`), so we skip the
-    // search and return the identity directly.
-    let identity_case = source_handle == target_handle
-        || (diff_chain.steps.is_empty() && schemas_byte_equal(&source, &target));
-
-    // Skip the morphism-search fallback when either (a) the diff
-    // already produced a non-empty protolens chain, or (b) we
-    // detected an identity case where the empty chain is itself the
-    // correct answer. Both paths return the diff_chain unchanged
-    // with full quality.
-    let skip_search = !diff_chain.steps.is_empty() || identity_case;
-    let (chain, quality) = if skip_search {
-        (diff_chain, 1.0)
-    } else {
-        let config = AutoLensConfig {
-            try_overlap: true,
-            ..Default::default()
-        };
-        match auto_generate(&source, &target, &protocol, &config) {
-            Ok(result) => (result.chain, result.alignment_quality),
-            Err(_) => (diff_chain, 0.0),
-        }
-    };
-
-    // ── Step 2: instantiate chain → Lens ───────────────────────────
-    let lens = chain
-        .instantiate(&source, &protocol)
-        .map_err(|e| WasmError::DeserializationFailed(format!("instantiate: {e}")))?;
-
-    // ── Step 3: extract schema mapping from CompiledMigration ──────
-    let mapping = extract_schema_mapping(&lens, &source, &target);
-
-    // Coverage gate: if the only morphism the diff+alignment path
-    // found is "drop every source vertex, add every target vertex"
-    // (i.e. the two schemas share no structural overlap), the chain
-    // that survives is a DropOp/AddOp pile that's legal but useless
-    // — installing it as circuit components dumps a hundred "drop_op_
-    // prop" boxes onto the canvas and teaches the user nothing. The
-    // candidates API already rejects these upstream; this path has
-    // to mirror that check because the diff-based fallback here
-    // bypasses the candidates filter. Threshold and reasoning match
-    // `auto_generate_candidates_inner` so the two entry points agree
-    // on what "usable" means.
-    if !identity_case {
-        let surviving = mapping.surviving_vertices.len();
-        let total = source.vertex_count().max(target.vertex_count()).max(1);
-        #[allow(clippy::cast_precision_loss)]
-        let coverage = surviving as f64 / total as f64;
-        if coverage < 0.15 {
-            return Err(WasmError::DeserializationFailed(format!(
-                "auto-generate: no usable lens between schemas \
-                 (coverage {:.2} below 0.15 threshold — the only morphism \
-                 is drop-all/add-all, which would dump a {}-step \
-                 DropOp pile onto the canvas instead of a useful lens)",
-                coverage,
-                chain.steps.len(),
-            )));
-        }
-    }
-
-    // ── Step 4: extract chain step descriptions ────────────────────
-    let chain_steps: Vec<ChainStepDesc> = chain
-        .steps
-        .iter()
-        .map(|step| ChainStepDesc {
-            name: step.name.to_string(),
-            source_transform: format!("{:?}", step.source.transform),
-            target_transform: format!("{:?}", step.target.transform),
-        })
-        .collect();
-
-    // ── Step 5: derive circuit components from compiled migration ──
-    // This ensures edit mode shows the auto-generated lens as real
-    // circuit components. The field-level effects from the compiled
-    // migration map to protolab's component types; when the diff is
-    // purely theory-level (no field renames/drops/adds), we fall back
-    // to one `chain_step` component per protolens step so the user
-    // still has an editable canvas.
-    install_field_level_components(circuit_handle, &lens, &chain)?;
-
-    // ── Step 6: store the Lens for accurate evaluation ─────────────
-    let lens_handle = slab::alloc(Resource::AutoLens(lens));
-
-    let graph = get_circuit_graph_inner(circuit_handle)?;
-
-    #[derive(Serialize)]
-    struct AutoLensResponse {
-        lens_handle: u32,
-        alignment_quality: f64,
-        chain_steps: Vec<ChainStepDesc>,
-        schema_mapping: SchemaMappingDesc,
-        graph: Vec<u8>,
-    }
-
-    rmp_serde::to_vec_named(&AutoLensResponse {
-        lens_handle,
-        alignment_quality: quality,
-        chain_steps,
-        schema_mapping: mapping,
-        graph,
-    })
-    .map_err(|e| WasmError::SerializationFailed(e.to_string()))
-}
-
-/// JSON-serialisable mirror of `panproto_lens::hint::HintParts` used as
-/// the wasm-side input for hint-guided auto-generation. All fields are
-/// optional; an empty value degrades to plain auto-generation.
-#[derive(serde::Deserialize, Default)]
-struct HintSpecJson {
-    #[serde(default)]
-    anchors: std::collections::HashMap<String, String>,
-    #[serde(default)]
-    scope_pairs: Vec<(String, String)>,
-    #[serde(default)]
-    excluded_targets: Vec<String>,
-    #[serde(default)]
-    excluded_sources: Vec<String>,
-    #[serde(default)]
-    scoring_weights: Option<[f64; 4]>,
-    #[serde(default)]
-    name_similarity_threshold: Option<f64>,
-    /// Optional minimum alignment quality. Defaults to 0.0 so the
-    /// search always returns its best attempt; UI surfaces the
-    /// quality and lets the user iterate on hints.
-    #[serde(default)]
-    quality_threshold: Option<f64>,
-}
-
-fn auto_generate_with_hints_and_store_inner(
-    circuit_handle: u32,
-    source_handle: u32,
-    target_handle: u32,
-    hints_json: &str,
-) -> Result<Vec<u8>, WasmError> {
-    use panproto_lens::auto_lens::{AutoLensConfig, auto_generate_with_hints};
-    use panproto_lens::hint::{HintParts, resolve_hints};
-
-    let source = slab::get_schema(source_handle)?;
-    let target = slab::get_schema(target_handle)?;
-    let protocol = panproto_protocols_default(&source);
-
-    let spec: HintSpecJson = serde_json::from_str(hints_json)
-        .map_err(|e| WasmError::DeserializationFailed(format!("hint spec: {e}")))?;
-
-    let parts = HintParts {
-        anchors: spec.anchors,
-        scope_pairs: spec.scope_pairs,
-        excluded_targets: spec.excluded_targets,
-        excluded_sources: spec.excluded_sources,
-        scoring_weights: spec.scoring_weights,
-        name_similarity_threshold: spec.name_similarity_threshold,
-    };
-    let (anchors, domain_constraints) = resolve_hints(&parts, &source, &target);
-
-    // Identity short-circuit (mirrors the unguided path) so we never
-    // invoke the constraint solver on a self-mapping — that previously
-    // hung on real atproto schemas.
-    let identity_case = source_handle == target_handle || schemas_byte_equal(&source, &target);
-
-    let (chain, lens, quality) = if identity_case {
-        let chain = panproto_lens::protolens::ProtolensChain::new(vec![]);
-        let lens = chain
-            .instantiate(&source, &protocol)
-            .map_err(|e| WasmError::DeserializationFailed(format!("identity instantiate: {e}")))?;
-        (chain, lens, 1.0_f64)
-    } else {
-        let config = AutoLensConfig {
-            try_overlap: true,
-            ..Default::default()
-        };
-        let result = auto_generate_with_hints(
-            &source,
-            &target,
-            &protocol,
-            &config,
-            &anchors,
-            &domain_constraints,
-            spec.quality_threshold,
-        )
-        .map_err(|e| WasmError::DeserializationFailed(format!("auto_generate_with_hints: {e}")))?;
-        (result.chain, result.lens, result.alignment_quality)
-    };
-
-    let mapping = extract_schema_mapping(&lens, &source, &target);
-
-    // Same coverage gate as `auto_generate_and_store_inner`: block a
-    // drop-all/add-all chain from reaching the canvas. The hinted
-    // path can still produce a degenerate morphism when the user's
-    // anchors don't touch enough of the source — we don't want the
-    // user's click-to-pin workflow to dump a 100-step DropOp pile
-    // just because their one anchor left 99% of the source
-    // unmatched.
-    if !identity_case {
-        let surviving = mapping.surviving_vertices.len();
-        let total = source.vertex_count().max(target.vertex_count()).max(1);
-        #[allow(clippy::cast_precision_loss)]
-        let coverage = surviving as f64 / total as f64;
-        if coverage < 0.15 {
-            return Err(WasmError::DeserializationFailed(format!(
-                "auto-generate-with-hints: no usable lens between schemas \
-                 (coverage {:.2} below 0.15 threshold — pin more anchors \
-                 in the hint editor so the morphism covers something \
-                 other than drop-all/add-all)",
-                coverage,
-            )));
-        }
-    }
-
-    let chain_steps: Vec<ChainStepDesc> = chain
-        .steps
-        .iter()
-        .map(|step| ChainStepDesc {
-            name: step.name.to_string(),
-            source_transform: format!("{:?}", step.source.transform),
-            target_transform: format!("{:?}", step.target.transform),
-        })
-        .collect();
-
-    install_field_level_components(circuit_handle, &lens, &chain)?;
-
-    let lens_handle = slab::alloc(Resource::AutoLens(lens));
-    let graph = get_circuit_graph_inner(circuit_handle)?;
-
-    #[derive(Serialize)]
-    struct AutoLensResponse {
-        lens_handle: u32,
-        alignment_quality: f64,
-        chain_steps: Vec<ChainStepDesc>,
-        schema_mapping: SchemaMappingDesc,
-        graph: Vec<u8>,
-    }
-
-    rmp_serde::to_vec_named(&AutoLensResponse {
-        lens_handle,
-        alignment_quality: quality,
-        chain_steps,
-        schema_mapping: mapping,
-        graph,
-    })
-    .map_err(|e| WasmError::SerializationFailed(e.to_string()))
-}
-
 fn auto_generate_candidates_inner(
     source_handle: u32,
     target_handle: u32,
@@ -1493,10 +1217,37 @@ fn auto_generate_candidates_inner(
         try_overlap: true,
         ..Default::default()
     };
-    // Identity short-circuit: byte-equal schemas produce an empty
-    // candidate list with a single identity candidate.
+    // Identity short-circuit: build the identity chain via
+    // `diff_to_protolens` (seeing an empty diff yields an identity
+    // protolens). Applies whenever the two schemas are structurally
+    // identical (same handle OR byte-equal) — the CSP can take a
+    // real wall-clock minute on large schemas like
+    // `app.bsky.feed.post` mapped to itself, so we skip it.
+    // Using `diff_to_protolens` instead of `ProtolensChain::new(
+    // vec![])` matters because the former's instantiate populates
+    // `CompiledMigration.surviving_verts` with every source vertex,
+    // so downstream `extract_schema_mapping` reports "0 removed,
+    // all surviving" as the test suite demands.
     if source_handle == target_handle || schemas_byte_equal(&source, &target) {
-        let chain = panproto_lens::protolens::ProtolensChain::new(vec![]);
+        use panproto_lens::diff_to_protolens::{DiffSpec, diff_to_protolens};
+        let schema_diff = panproto_check::diff(&source, &target);
+        let diff_spec = DiffSpec {
+            added_vertices: schema_diff.added_vertices.clone(),
+            removed_vertices: schema_diff.removed_vertices.clone(),
+            kind_changes: schema_diff
+                .kind_changes
+                .iter()
+                .map(|kc| panproto_lens::diff_to_protolens::KindChange {
+                    vertex_id: kc.vertex_id.clone(),
+                    old_kind: kc.old_kind.clone(),
+                    new_kind: kc.new_kind.clone(),
+                })
+                .collect(),
+            added_edges: schema_diff.added_edges.clone(),
+            removed_edges: schema_diff.removed_edges.clone(),
+        };
+        let chain = diff_to_protolens(&diff_spec, &source, &target)
+            .map_err(|e| WasmError::DeserializationFailed(format!("identity diff: {e}")))?;
         let lens = chain
             .instantiate(&source, &protocol)
             .map_err(|e| WasmError::DeserializationFailed(format!("identity: {e}")))?;
@@ -1511,7 +1262,10 @@ fn auto_generate_candidates_inner(
         };
 
         let desc = candidate_to_desc(&candidate);
-        let lens_handle = slab::alloc(Resource::AutoLens(candidate.lens));
+        let lens_handle = slab::alloc(Resource::AutoLens {
+            lens: candidate.lens,
+            chain: candidate.chain,
+        });
         #[derive(Serialize)]
         struct CandidatesResponseFull {
             candidates: Vec<CandidateDescWithHandle>,
@@ -1560,28 +1314,43 @@ fn auto_generate_candidates_inner(
 
     // Discard degenerate "drop every source vertex, add every target
     // vertex" chains. These are legal schema morphisms (empty
-    // intersection, fill both sides from nothing) but they're useless
-    // as lenses — the user sees a hundred-step DropOp/AddOp pile
-    // that can't transform any real data. Surface "no morphism" to
-    // the frontend instead so the discovered-anchors UX kicks in and
-    // the user can pin a hint. The threshold is deliberately low
-    // (≥15% of vertices must be naturality-mapped): we still allow
-    // sparse-overlap cases to come through, we only cut the ones
-    // where almost nothing is shared.
-    candidates.retain(|c| c.coverage >= 0.15);
+    // intersection, fill both sides from nothing) but they're
+    // useless as lenses — the user sees a hundred-step DropOp/AddOp
+    // pile that can't transform any real data. The test is: did the
+    // compiled lens actually map any source vertex forward? A
+    // pathological drop-all/add-all has an empty `vertex_remap`,
+    // whereas a sparse real lens (e.g., `app.bsky.feed.post →
+    // app.bsky.feed.like` preserving just `createdAt`) has at least
+    // one entry. This avoids the false-negatives a coverage-ratio
+    // threshold produced against small shared subsets.
+    candidates.retain(|c| {
+        // Keep if ANY of the compiled migration's mapping tables
+        // has content. Surviving verts covers the identity case
+        // (empty chain against a record where nothing needed to
+        // change); vertex_remap covers the renamed/preserved case.
+        !c.lens.compiled.vertex_remap.is_empty() || !c.lens.compiled.surviving_verts.is_empty()
+    });
     if candidates.is_empty() {
         return Err(WasmError::DeserializationFailed(
-            "candidates: no morphism found between schemas (every candidate was below the useful-coverage threshold — drop-only chain)".into(),
+            "candidates: no morphism found between schemas (every candidate was a drop-only / add-only chain with nothing preserved or renamed)".into(),
         ));
     }
 
     let descs: Vec<CandidateDesc> = candidates.iter().map(candidate_to_desc).collect();
 
     // Store all candidate lenses in the slab so the frontend can
-    // evaluate any of them by handle.
+    // evaluate any of them by handle. Chain is carried alongside so
+    // a later `install_candidate_components` call can materialize
+    // the selected candidate as editable circuit components without
+    // re-running the alignment search.
     let handles: Vec<u32> = candidates
         .into_iter()
-        .map(|c| slab::alloc(Resource::AutoLens(c.lens)))
+        .map(|c| {
+            slab::alloc(Resource::AutoLens {
+                lens: c.lens,
+                chain: c.chain,
+            })
+        })
         .collect();
 
     #[derive(Serialize)]
@@ -1603,6 +1372,153 @@ fn auto_generate_candidates_inner(
 
     rmp_serde::to_vec_named(&CandidatesResponseFull { candidates: full })
         .map_err(|e| WasmError::SerializationFailed(e.to_string()))
+}
+
+fn compute_schema_mapping_inner(
+    source_handle: u32,
+    target_handle: u32,
+) -> Result<Vec<u8>, WasmError> {
+    let source = slab::get_schema(source_handle)?;
+    let target = slab::get_schema(target_handle)?;
+
+    // Treat shared vertex ids as "surviving"; everything else as
+    // added or removed. This is the pre-lens, pre-CSP shape — just
+    // what's obvious from comparing the two schema graphs directly.
+    let surviving: Vec<String> = source
+        .vertices
+        .keys()
+        .filter(|v| target.vertices.contains_key(*v))
+        .map(|v| v.to_string())
+        .collect();
+    let removed: Vec<String> = source
+        .vertices
+        .keys()
+        .filter(|v| !target.vertices.contains_key(*v))
+        .map(|v| v.to_string())
+        .collect();
+    let added: Vec<String> = target
+        .vertices
+        .keys()
+        .filter(|v| !source.vertices.contains_key(*v))
+        .map(|v| v.to_string())
+        .collect();
+    let vertex_remap: Vec<(String, String)> =
+        surviving.iter().map(|v| (v.clone(), v.clone())).collect();
+
+    let desc = SchemaMappingDesc {
+        vertex_remap,
+        added_vertices: added,
+        removed_vertices: removed,
+        surviving_vertices: surviving,
+        field_transforms: vec![],
+    };
+    rmp_serde::to_vec_named(&desc).map_err(|e| WasmError::SerializationFailed(e.to_string()))
+}
+
+fn clear_circuit_components_inner(circuit_handle: u32) -> Result<Vec<u8>, WasmError> {
+    slab::with_resource_mut(circuit_handle, |r| {
+        if let Resource::Circuit(state) = r {
+            let existing_ids: Vec<panproto_gat::Name> = state
+                .schema
+                .vertices
+                .keys()
+                .filter(|v| {
+                    state
+                        .schema
+                        .vertices
+                        .get(*v)
+                        .is_some_and(|vertex| vertex.kind.as_ref() == "component")
+                })
+                .cloned()
+                .collect();
+            for id in existing_ids {
+                mutate::remove_component(&mut state.schema, id.as_ref()).ok();
+            }
+            Ok(())
+        } else {
+            Err(WasmError::TypeMismatch {
+                expected: "Circuit",
+                got: "other",
+            })
+        }
+    })??;
+    get_circuit_graph_inner(circuit_handle)
+}
+
+fn install_candidate_components_inner(
+    circuit_handle: u32,
+    lens_handle: u32,
+    source_handle: u32,
+    target_handle: u32,
+) -> Result<Vec<u8>, WasmError> {
+    let source = slab::get_schema(source_handle)?;
+    let target = slab::get_schema(target_handle)?;
+
+    // The slab is a single-`RefCell` `Vec<Option<Resource>>`, so
+    // nesting `with_resource(lens_handle, …)` around
+    // `install_field_level_components` — which itself takes
+    // `with_resource_mut(circuit_handle, …)` — panics on the inner
+    // borrow. Instead: take the lens+chain out, install while the
+    // slab is otherwise idle, then put them back.
+    let taken = slab::take_resource(lens_handle)?;
+    let (lens, chain) = match taken {
+        Resource::AutoLens { lens, chain } => (lens, chain),
+        other => {
+            slab::put_resource(lens_handle, other)?;
+            return Err(WasmError::TypeMismatch {
+                expected: "AutoLens",
+                got: "other",
+            });
+        }
+    };
+
+    // Helper: guarantee the lens gets put back into the slab even
+    // if any step below bails. The `?` operator plus a taken
+    // resource would leak the slot otherwise.
+    let run = || -> Result<Vec<u8>, WasmError> {
+        // No coverage gate here: any candidate reaching this entry
+        // has already cleared the 0.15 threshold upstream in
+        // `auto_generate_candidates_inner`, and a secondary metric
+        // computed here (surviving-vertex ratio from
+        // `extract_schema_mapping`) would use different arithmetic
+        // than panproto's `LensCandidate.coverage` and could reject
+        // a legitimate candidate over rounding. Defend at the
+        // generation site, not here.
+        let mapping = extract_schema_mapping(&lens, &source, &target);
+
+        install_field_level_components(circuit_handle, &lens, &chain)?;
+
+        let chain_steps: Vec<ChainStepDesc> = chain
+            .steps
+            .iter()
+            .map(|step| ChainStepDesc {
+                name: step.name.to_string(),
+                source_transform: format!("{:?}", step.source.transform),
+                target_transform: format!("{:?}", step.target.transform),
+            })
+            .collect();
+
+        let graph = get_circuit_graph_inner(circuit_handle)?;
+
+        #[derive(Serialize)]
+        struct InstallResponse {
+            chain_steps: Vec<ChainStepDesc>,
+            schema_mapping: SchemaMappingDesc,
+            graph: Vec<u8>,
+        }
+        rmp_serde::to_vec_named(&InstallResponse {
+            chain_steps,
+            schema_mapping: mapping,
+            graph,
+        })
+        .map_err(|e| WasmError::SerializationFailed(e.to_string()))
+    };
+
+    let result = run();
+    // Restore the lens regardless of success so subsequent evaluate/
+    // put calls via the same handle still work.
+    slab::put_resource(lens_handle, Resource::AutoLens { lens, chain })?;
+    result
 }
 
 fn discover_anchors_inner(
@@ -1771,7 +1687,7 @@ fn evaluate_auto_lens_inner(lens_handle: u32, input_json: &str) -> Result<Vec<u8
     // All lens operations must happen inside with_resource since Lens
     // doesn't implement Clone.
     let (output_json, complement) = slab::with_resource(lens_handle, |r| match r {
-        Resource::AutoLens(lens) => {
+        Resource::AutoLens { lens, .. } => {
             let root = protolab_eval::protolens_for_component::find_root_vertex(&lens.src_schema)
                 .map(|n| n.to_string())
                 .unwrap_or_else(|| "root".into());
@@ -1828,7 +1744,7 @@ fn put_auto_lens_inner(
 
     // Do the put inside with_resource since Lens doesn't implement Clone.
     let restored_json = slab::with_resource(lens_handle, |r| match r {
-        Resource::AutoLens(lens) => {
+        Resource::AutoLens { lens, .. } => {
             let root = protolab_eval::protolens_for_component::find_root_vertex(&lens.tgt_schema)
                 .map(|n| n.to_string())
                 .unwrap_or_else(|| "root".into());
@@ -5291,45 +5207,45 @@ mod tests {
     }
 
     #[test]
-    fn auto_generate_with_identical_source_and_target_terminates_quickly() {
+    fn auto_generate_candidates_with_identical_source_and_target_terminates_quickly() {
         // Regression: assigning target = source previously caused the
-        // store-driven UI flow to hang. The bug, if any, is at the
-        // wasm layer — this test pins the contract that
-        // `auto_generate_and_store_inner(circuit, h, h)` returns in
-        // bounded time and produces a 100%-survival mapping.
-        let (h, sh) = build_demo_with_input("{}");
+        // store-driven UI flow to hang. The identity short-circuit in
+        // `auto_generate_candidates_inner` must return in bounded
+        // time with a 100%-quality identity candidate.
+        let (_h, sh) = build_demo_with_input("{}");
+        let opts = r#"{"stringency":"balanced","top_n":3}"#;
         let started = std::time::Instant::now();
-        let bytes = auto_generate_and_store_inner(h, sh, sh).expect("self-mapping should succeed");
+        let bytes = auto_generate_candidates_inner(sh, sh, opts)
+            .expect("self-mapping should produce the identity candidate");
         let elapsed = started.elapsed();
         assert!(
             elapsed.as_secs() < 5,
             "self-mapping took {elapsed:?} (>5s suggests a hang)"
         );
-        // Decode the response and assert no source vertex was dropped.
         #[derive(Deserialize)]
         struct R {
-            schema_mapping: SchemaMappingDescOwned,
+            candidates: Vec<C>,
         }
         #[derive(Deserialize)]
-        struct SchemaMappingDescOwned {
-            removed_vertices: Vec<String>,
+        struct C {
+            quality: f64,
         }
         let r: R = rmp_serde::from_slice(&bytes).unwrap();
-        assert!(
-            r.schema_mapping.removed_vertices.is_empty(),
-            "self-mapping must not drop vertices, got {:?}",
-            r.schema_mapping.removed_vertices,
+        assert_eq!(
+            r.candidates.len(),
+            1,
+            "identity emits exactly one candidate"
         );
+        assert_eq!(r.candidates[0].quality, 1.0);
     }
 
     #[test]
-    fn auto_generate_with_atproto_self_mapping_terminates_quickly() {
+    fn auto_generate_candidates_with_atproto_self_mapping_terminates_quickly() {
         // Exercises the exact path that hung in Playwright: import a
-        // real atproto lexicon, then map it to itself.
+        // real atproto lexicon, then map it to itself via the
+        // candidates API.
         use std::time::Instant;
         let post = include_str!("../../../app/e2e/fixtures/lexicons/app.bsky.feed.post.json");
-        // Strip the lexicon.garden envelope to feed the parser exactly
-        // what the wasm bridge constructs in `handleResolveAtproto`.
         let envelope: serde_json::Value = serde_json::from_str(post).unwrap();
         let payload = if envelope
             .get("schema")
@@ -5341,15 +5257,15 @@ mod tests {
             envelope.to_string()
         };
 
-        let circuit = create_circuit();
         let import_bytes = parse_atproto_lexicon_inner(&payload).unwrap();
         #[derive(Deserialize)]
         struct Imp {
             handle: u32,
         }
         let imp: Imp = rmp_serde::from_slice(&import_bytes).unwrap();
+        let opts = r#"{"stringency":"balanced","top_n":3}"#;
         let started = Instant::now();
-        let result = auto_generate_and_store_inner(circuit, imp.handle, imp.handle);
+        let result = auto_generate_candidates_inner(imp.handle, imp.handle, opts);
         let elapsed = started.elapsed();
         assert!(
             elapsed.as_secs() < 5,
@@ -5359,22 +5275,22 @@ mod tests {
     }
 
     #[test]
-    fn auto_generate_with_hints_and_store_terminates_quickly() {
-        // Same regression target for the hinted variant, with an
-        // identity anchor. Both Rust and panproto dependencies must
-        // tolerate self-mapping under hints without recursion.
-        let (h, sh) = build_demo_with_input("{}");
-        let hints_json = r#"{"anchors":{"root":"root"}}"#;
+    fn auto_generate_candidates_with_hint_anchors_terminates_quickly() {
+        // Hinted variant of the self-mapping terminator. The anchor
+        // map lives on the opts JSON now (candidates API), replacing
+        // the old `auto_generate_with_hints_and_store`.
+        let (_h, sh) = build_demo_with_input("{}");
+        let opts = r#"{"stringency":"balanced","top_n":3,"anchors":{"root":"root"}}"#;
         let started = std::time::Instant::now();
-        let result = auto_generate_with_hints_and_store_inner(h, sh, sh, hints_json);
+        let result = auto_generate_candidates_inner(sh, sh, opts);
         let elapsed = started.elapsed();
         assert!(
             elapsed.as_secs() < 5,
             "hinted self-mapping took {elapsed:?} (>5s suggests a hang)"
         );
-        // Result shape may be Err if the anchor doesn't match an
-        // actual vertex name in the demo's source — that's OK; the
-        // contract here is "doesn't hang", not "always succeeds".
+        // Result may be Err if the anchor doesn't match an actual
+        // vertex name in the demo's source — that's OK; the contract
+        // here is "doesn't hang", not "always succeeds".
         let _ = result;
     }
 

@@ -286,6 +286,70 @@ export const autoGenerateAndStore = vi.fn(
   }),
 );
 
+// New candidates-API surface (replaces autoGenerateAndStore for the
+// primary auto-lens flow). The default mock returns one candidate
+// with a positive coverage so `selectCandidate(0)` proceeds to
+// install without triggering the no-mapping fallback.
+export const autoGenerateCandidates = vi.fn(
+  (_sourceHandle: number, _targetHandle: number, _opts?: unknown) => ({
+    candidates: [
+      {
+        quality: 0.85,
+        coverage: 0.8,
+        strategies_used: ["Exact"],
+        steps: [
+          {
+            name: "rename_sort",
+            source_transform: "Identity",
+            target_transform: "RenameSort",
+            explanation: "",
+            confidence: 1.0,
+            strategy: "Exact",
+          },
+        ],
+        seed_anchors: [],
+        lens_handle: 99,
+      },
+    ],
+  }),
+);
+
+export const discoverAnchors = vi.fn(
+  (_sourceHandle: number, _targetHandle: number, _opts?: unknown) => ({
+    anchors: [],
+  }),
+);
+
+export const clearCircuitComponents = vi.fn((_circuitHandle: number) =>
+  defaultGraph(),
+);
+
+export const computeSchemaMapping = vi.fn(
+  (_sourceHandle: number, _targetHandle: number) => ({
+    vertex_remap: [],
+    added_vertices: [],
+    removed_vertices: [],
+    surviving_vertices: [],
+    field_transforms: [],
+  }),
+);
+
+export const installCandidateComponents = vi.fn(
+  (_circuitHandle: number, _lensHandle: number, _sourceHandle: number, _targetHandle: number) => ({
+    chainSteps: [
+      { name: "rename_sort", source_transform: "Identity", target_transform: "RenameSort" },
+    ],
+    schemaMapping: {
+      vertex_remap: [["old_v", "new_v"]],
+      added_vertices: ["added_v"],
+      removed_vertices: ["removed_v"],
+      surviving_vertices: ["surviving_v"],
+      field_transforms: [],
+    },
+    graph: defaultGraph(),
+  }),
+);
+
 export const evaluateAutoLens = vi.fn(
   (_lensHandle: number, _inputJson: string) => ({
     outputJson: '{"transformed": true}',
@@ -473,6 +537,41 @@ export function resetMockBridge(): void {
     lensHandle: 99,
     quality: 0.85,
     chainSteps: [{ name: "rename_sort", source_transform: "Identity", target_transform: "RenameSort" }],
+    schemaMapping: {
+      vertex_remap: [["old_v", "new_v"]],
+      added_vertices: ["added_v"],
+      removed_vertices: ["removed_v"],
+      surviving_vertices: ["surviving_v"],
+      field_transforms: [],
+    },
+    graph: defaultGraph(),
+  }));
+  autoGenerateCandidates.mockImplementation(() => ({
+    candidates: [
+      {
+        quality: 0.85,
+        coverage: 0.8,
+        strategies_used: ["Exact"],
+        steps: [
+          {
+            name: "rename_sort",
+            source_transform: "Identity",
+            target_transform: "RenameSort",
+            explanation: "",
+            confidence: 1.0,
+            strategy: "Exact",
+          },
+        ],
+        seed_anchors: [],
+        lens_handle: 99,
+      },
+    ],
+  }));
+  discoverAnchors.mockImplementation(() => ({ anchors: [] }));
+  installCandidateComponents.mockImplementation(() => ({
+    chainSteps: [
+      { name: "rename_sort", source_transform: "Identity", target_transform: "RenameSort" },
+    ],
     schemaMapping: {
       vertex_remap: [["old_v", "new_v"]],
       added_vertices: ["added_v"],

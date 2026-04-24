@@ -27,19 +27,24 @@ export function SchemaMappingWidget(_props: WidgetProps) {
     || (hints.excluded_sources?.length ?? 0) > 0
     || (hints.excluded_targets?.length ?? 0) > 0;
 
-  if (!mapping || status !== "success") {
+  // Render nothing when neither schema is assigned — nothing useful
+  // to say. Once both are assigned, we always show something: the
+  // detailed mapping when a candidate was installed, or an empty-
+  // state CTA pointing to the hint editor when the search failed or
+  // produced no data-level steps. The cross-mode tests rely on
+  // "neither badge nor CTA" meaning "widget itself didn't mount".
+  if (sourceHandle === null || targetHandle === null) {
     return null;
   }
 
-  // When no data-level mapping was inferred (empty circuit but a
-  // non-empty theory-level chain), show the same prominent empty
-  // state as the edit-mode canvas. Instance-level and theory-level
-  // information must not share a pane — that was the old confusion.
+  // When auto-gen surfaced no usable mapping (CSP failed, or the
+  // candidate was rejected by the coverage filter, or the theory-
+  // level chain had nothing at the data layer), show a prominent
+  // empty state CTA the same way the edit-mode canvas does.
   const noDataLevelMapping =
-    nodeCount === 0 &&
-    chainStepCount > 0 &&
-    sourceHandle !== null &&
-    targetHandle !== null;
+    !mapping ||
+    status !== "success" ||
+    (nodeCount === 0 && chainStepCount > 0);
 
   if (noDataLevelMapping) {
     return (

@@ -7,6 +7,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-04-24
+
+### Changed
+
+- **Unified auto-lens through the candidates API.** The store no
+  longer calls two wasm entries on every target assignment. Before,
+  `assignTargetSchema` kicked off both `generateCandidates` (for the
+  Inspector's candidate list) and a legacy `autoGenerateLens` (for
+  installing components onto the canvas) — two CSP runs, two
+  slightly different coverage filters, and a silent gap where the
+  legacy path could dump a hundred-step `DropOp` pile onto the
+  canvas while the candidate list correctly reported "no mapping
+  inferred." `autoGenerateLens`/`regenerateWithHints` now both
+  delegate to `generateCandidates`; its auto-selected top candidate
+  is the installed one. The legacy wasm entries
+  `auto_generate_and_store` and `auto_generate_with_hints_and_store`
+  are gone.
+- **Selecting a candidate installs its components.** A new wasm
+  entry `install_candidate_components` takes `{circuit, lens,
+  source, target}` handles and materializes the candidate's chain
+  as editable `rename_field` / `add_field` / `drop_field` / etc.
+  nodes on the canvas. The store's `selectCandidate` runs it so
+  switching candidates in the Inspector actually swaps the canvas
+  content — previously the chain behind the selected candidate
+  never reached the canvas.
+- **`Resource::AutoLens` now carries the chain alongside the lens**,
+  so component installation and schema-mapping extraction can
+  happen later without re-running the alignment search. The slab
+  grew a `take_resource` / `put_resource` pair so operations that
+  need both a lens AND the circuit that it targets don't deadlock
+  the `RefCell`-backed store.
+
+### Added
+
+- **`clear_circuit_components` wasm entry.** Called by the store
+  before each candidate regeneration so that when a search fails,
+  the canvas isn't left holding stale components from a previous
+  target assignment (or the demo's initial circuit).
+- **`compute_schema_mapping` wasm entry.** Computes a bare schema
+  mapping directly from the source/target graphs, without running
+  the lens compiler. The store uses it to populate
+  `autoLensSchemaMapping` even when the CSP finds no usable lens,
+  so the SchemaMapping / TheoryDiff / HintEditor widgets have
+  meaningful state in the "no mapping" path.
+- **Drop-everything lens filter based on `vertex_remap`.** Replaces
+  the 0.15 coverage-ratio heuristic from v0.6.3/v0.6.4. A candidate
+  passes iff its compiled migration has at least one preserved or
+  renamed vertex — the precise test for "this lens does something
+  other than drop-all/add-all." Low-overlap pairs (`feed.post →
+  feed.like` sharing only `createdAt`) now keep their candidate
+  while the pathological `feed.post → standard.document` 123-step
+  pile is still rejected.
+
+### Fixed
+
+- **The `feed.post → standard.document` drop-op bomb, for real.**
+  v0.6.4's coverage gate only applied to the candidates API, not
+  the legacy install path — mapping unrelated atproto lexicons
+  still bomb'd the canvas. Gone now that the legacy path is gone.
+- `SchemaMappingWidget` renders its empty-state CTA whenever a
+  lens didn't compile, not only for the `successButEmpty` case.
+
 ## [0.6.4] — 2026-04-24
 
 ### Fixed

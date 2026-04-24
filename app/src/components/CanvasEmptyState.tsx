@@ -98,9 +98,7 @@ export function CanvasEmptyState() {
             letterSpacing: "-0.005em",
           }}
         >
-          {isErrored
-            ? "No automatic mapping found"
-            : "No data-level mapping inferred"}
+          No data-level mapping inferred
         </div>
         <div
           style={{
@@ -111,7 +109,7 @@ export function CanvasEmptyState() {
           }}
         >
           {isErrored
-            ? "The solver couldn't fit a morphism across every source vertex. This is common when the schemas cover different vocabularies and most of one side has no analog on the other."
+            ? "The solver couldn't fit a morphism with enough coverage to produce a useful lens — common when the schemas cover different vocabularies and most of one side has no analog on the other."
             : "panproto couldn't derive a transform between these schemas automatically. The field names don't overlap enough for the solver to guess."}{" "}
           {unpinnedAnchors.length > 0
             ? "Lock one of the correspondences below as a hint and the search will retry — or open the hint editor for full control."

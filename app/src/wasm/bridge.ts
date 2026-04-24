@@ -41,15 +41,16 @@ import init, {
   parse_atproto_lexicon as parse_atproto_lexicon_wasm,
   parse_native_schema as parse_native_schema_wasm,
   list_supported_protocols as list_supported_protocols_wasm,
-  auto_generate_and_store as auto_generate_and_store_wasm,
   evaluate_auto_lens as evaluate_auto_lens_wasm,
   put_auto_lens as put_auto_lens_wasm,
   validate_data_against_schema as validate_data_against_schema_wasm,
-  auto_generate_with_hints_and_store as auto_generate_with_hints_and_store_wasm,
   get_schema_details as get_schema_details_wasm,
   export_schema_json as export_schema_json_wasm,
   auto_generate_candidates as auto_generate_candidates_wasm,
   discover_anchors as discover_anchors_wasm,
+  install_candidate_components as install_candidate_components_wasm,
+  clear_circuit_components as clear_circuit_components_wasm,
+  compute_schema_mapping as compute_schema_mapping_wasm,
 } from "./pkg/protolab_wasm.js";
 import { encode, decode } from "@msgpack/msgpack";
 
@@ -300,40 +301,10 @@ export interface SchemaMappingDesc {
   field_transforms: Array<[string, string[]]>;
 }
 
-export interface AutoGenerateResult {
-  lens_handle: number;
-  alignment_quality: number;
-  chain_steps: ChainStepDesc[];
-  schema_mapping: SchemaMappingDesc;
-  graph: Uint8Array;
-}
-
-/**
- * Auto-generate a lens between source and target schemas using
- * panproto's native pipeline (diff → protolens → instantiate → Lens).
- * Stores the Lens in the WASM slab for direct evaluation AND installs
- * field-level circuit components so edit mode reflects the auto-lens.
- */
-export function autoGenerateAndStore(
-  circuitHandle: number,
-  sourceHandle: number,
-  targetHandle: number,
-): { lensHandle: number; quality: number; chainSteps: ChainStepDesc[]; schemaMapping: SchemaMappingDesc; graph: CircuitGraph } {
-  const result = auto_generate_and_store_wasm(circuitHandle, sourceHandle, targetHandle);
-  const parsed = decode(result) as AutoGenerateResult;
-  const graph = decode(parsed.graph) as CircuitGraph;
-  return {
-    lensHandle: parsed.lens_handle,
-    quality: parsed.alignment_quality,
-    chainSteps: parsed.chain_steps,
-    schemaMapping: parsed.schema_mapping,
-    graph,
-  };
-}
-
 /**
  * JSON-serialisable mirror of `panproto_lens::hint::HintParts`.
  * All fields optional; an empty value degrades to plain auto-generation.
+ * Used by the candidates API's opts payload (via `CandidateOpts`).
  */
 export interface HintSpec {
   /** Source vertex id → target vertex id anchors. */
@@ -350,34 +321,6 @@ export interface HintSpec {
   name_similarity_threshold?: number;
   /** Optional minimum alignment quality. Defaults to 0.0. */
   quality_threshold?: number;
-}
-
-/**
- * Hint-guided auto-generation. Same return shape as `autoGenerateAndStore`,
- * but the morphism search is seeded with user-supplied anchors / scope /
- * exclusion / preference data.
- */
-export function autoGenerateWithHintsAndStore(
-  circuitHandle: number,
-  sourceHandle: number,
-  targetHandle: number,
-  hints: HintSpec,
-): { lensHandle: number; quality: number; chainSteps: ChainStepDesc[]; schemaMapping: SchemaMappingDesc; graph: CircuitGraph } {
-  const result = auto_generate_with_hints_and_store_wasm(
-    circuitHandle,
-    sourceHandle,
-    targetHandle,
-    JSON.stringify(hints),
-  );
-  const parsed = decode(result) as AutoGenerateResult;
-  const graph = decode(parsed.graph) as CircuitGraph;
-  return {
-    lensHandle: parsed.lens_handle,
-    quality: parsed.alignment_quality,
-    chainSteps: parsed.chain_steps,
-    schemaMapping: parsed.schema_mapping,
-    graph,
-  };
 }
 
 export interface SchemaVertexDetail {
@@ -501,6 +444,78 @@ export function discoverAnchors(
     JSON.stringify(opts),
   );
   return decode(result) as DiscoveredAnchors;
+}
+
+export interface InstallCandidateResult {
+  chainSteps: ChainStepDesc[];
+  schemaMapping: SchemaMappingDesc;
+  graph: CircuitGraph;
+}
+
+interface InstallCandidateRaw {
+  chain_steps: ChainStepDesc[];
+  schema_mapping: SchemaMappingDesc;
+  graph: Uint8Array | number[];
+}
+
+/**
+ * Materialize the given candidate (by `lens_handle`) as editable
+ * circuit components on `circuitHandle`. Returns the new graph
+ * plus the chain-step descriptions and schema mapping that the
+ * LensChainWidget / SchemaMappingWidget / TheoryDiffModal consume.
+ *
+ * Called by the store's `selectCandidate` — installing components
+ * is deferred until the user actually picks a candidate, instead
+ * of running on every `assignTargetSchema`.
+ */
+/**
+ * Compute a bare schema mapping between source and target directly
+ * from the schema graphs, without running the lens compiler. Used
+ * by the store's no-mapping-UX path so downstream widgets
+ * (SchemaMappingWidget, HintEditor, TheoryDiffModal) still have
+ * populated mapping state when the CSP finds no usable lens.
+ */
+export function computeSchemaMapping(
+  sourceHandle: number,
+  targetHandle: number,
+): SchemaMappingDesc {
+  const result = compute_schema_mapping_wasm(sourceHandle, targetHandle);
+  return decode(result) as SchemaMappingDesc;
+}
+
+/**
+ * Remove every `component`-kind vertex from the circuit. Called by
+ * the store before regeneration so that if the new candidate search
+ * fails, the canvas isn't left with stale components from a
+ * previous target or from the initial demo circuit.
+ */
+export function clearCircuitComponents(circuitHandle: number): CircuitGraph {
+  const result = clear_circuit_components_wasm(circuitHandle);
+  return decode(result) as CircuitGraph;
+}
+
+export function installCandidateComponents(
+  circuitHandle: number,
+  lensHandle: number,
+  sourceHandle: number,
+  targetHandle: number,
+): InstallCandidateResult {
+  const result = install_candidate_components_wasm(
+    circuitHandle,
+    lensHandle,
+    sourceHandle,
+    targetHandle,
+  );
+  const decoded = decode(result) as InstallCandidateRaw;
+  return {
+    chainSteps: decoded.chain_steps,
+    schemaMapping: decoded.schema_mapping,
+    graph: decode(
+      decoded.graph instanceof Uint8Array
+        ? decoded.graph
+        : new Uint8Array(decoded.graph),
+    ) as CircuitGraph,
+  };
 }
 
 export interface AutoLensEvalResult {

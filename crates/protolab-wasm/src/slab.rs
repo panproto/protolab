@@ -35,8 +35,15 @@ pub enum Resource {
     /// handle plumbing; not currently surfaced as a distinct WASM entry.
     Morphism(TheoryMorphism),
     /// An auto-generated lens (stored for direct evaluation via
-    /// `asymmetric::get`/`put` without circuit decomposition).
-    AutoLens(Lens),
+    /// `asymmetric::get`/`put` without circuit decomposition). The
+    /// chain is carried alongside the lens so post-hoc component
+    /// installation and schema-mapping extraction (triggered when
+    /// the user selects a candidate) can work from a single handle
+    /// without re-running the alignment search.
+    AutoLens {
+        lens: Lens,
+        chain: panproto_lens::protolens::ProtolensChain,
+    },
     /// A complement from a `get` operation, stored so `put` can restore
     /// the original source instance.
     LensComplement(Complement),
@@ -183,6 +190,37 @@ where
             .and_then(|slot| slot.as_mut())
             .ok_or(WasmError::InvalidHandle(handle))?;
         Ok(f(resource))
+    })
+}
+
+/// Take a resource out of the slab by handle. The slot is left as
+/// `None` until [`put_resource`] restores it. Callers that need to
+/// hold a resource across a call that itself re-enters the slab
+/// (e.g., installing a lens's chain as components into a circuit
+/// stored under a different handle) should use this pair instead of
+/// [`with_resource`] / [`with_resource_mut`], because the slab is
+/// backed by a single `RefCell` and nested borrows panic.
+pub fn take_resource(handle: u32) -> Result<Resource, WasmError> {
+    SLAB.with(|slab| {
+        let mut slab = slab.borrow_mut();
+        let slot = slab
+            .get_mut(handle as usize)
+            .ok_or(WasmError::InvalidHandle(handle))?;
+        slot.take().ok_or(WasmError::InvalidHandle(handle))
+    })
+}
+
+/// Restore a resource to a slot previously emptied by [`take_resource`].
+/// Idempotent; if the slot was already populated, the old value is
+/// overwritten (callers shouldn't rely on that).
+pub fn put_resource(handle: u32, resource: Resource) -> Result<(), WasmError> {
+    SLAB.with(|slab| {
+        let mut slab = slab.borrow_mut();
+        let slot = slab
+            .get_mut(handle as usize)
+            .ok_or(WasmError::InvalidHandle(handle))?;
+        *slot = Some(resource);
+        Ok(())
     })
 }
 

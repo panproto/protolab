@@ -333,7 +333,6 @@ interface CircuitState {
   // Schema assignment + evaluation
   assignSourceSchema(schemaHandle: number): void;
   assignTargetSchema(schemaHandle: number | null): void;
-  autoGenerateLens(): void;
   /** Re-run auto-generation guided by the supplied hint spec. */
   regenerateWithHints(hints: wasm.HintSpec): void;
   setHints(hints: wasm.HintSpec): void;
@@ -811,32 +810,188 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
 
   assignTargetSchema(schemaHandle) {
     set({ targetSchemaHandle: schemaHandle });
-    // Auto-generate candidates when both schemas are set. The
-    // candidates API (v0.33.0) replaces the single-morphism path
-    // and uses the current stringency level.
+    // Single path: run the candidates API; auto-select the top
+    // candidate via selectCandidate(0), which also materializes its
+    // chain as editable circuit components and populates the
+    // chain-step / schema-mapping state downstream widgets read.
+    // The old dual-path setup (`generateCandidates` + legacy
+    // `autoGenerateLens`) double-ran the CSP and silently bypassed
+    // the coverage filter in the legacy path, letting a 123-step
+    // DropOp pile onto the canvas even when the candidates surface
+    // said "no mapping inferred".
     if (schemaHandle !== null) {
       get().generateCandidates();
-      // Also run legacy autoGenerateLens for backwards compat with
-      // the existing chain-steps / mapping widget until the UI
-      // fully migrates to the candidates surface.
-      get().autoGenerateLens();
     }
   },
 
-  autoGenerateLens() {
-    const handle = get().circuitHandle;
+  /**
+   * Hint-guided regeneration. Stores the spec on `autoLensHints` and
+   * re-runs the candidates API; `selectCandidate(0)` handles the
+   * component install + downstream state population. Replaces the
+   * old `autoGenerateWithHintsAndStore` wasm call.
+   */
+  regenerateWithHints(hints) {
+    set({ autoLensHints: hints });
+    get().generateCandidates();
+  },
+
+  setHints(hints) {
+    set({ autoLensHints: hints });
+  },
+
+  setStringency(stringency) {
+    set({ stringency });
+    get().generateCandidates();
+  },
+
+  generateCandidates() {
     const src = get().sourceSchemaHandle;
     const tgt = get().targetSchemaHandle;
-    // Only auto-generate when both source AND target are explicitly set.
-    if (handle === null || src === null || tgt === null) return;
+    if (src === null || tgt === null) return;
+    const circuitHandle = get().circuitHandle;
+
+    // Wipe any existing components before running the search. Two
+    // reasons: (1) if the search fails, the canvas shouldn't keep
+    // stale components from a previous target assignment or from
+    // the demo initial circuit — the "no mapping" empty-state
+    // overlay gates on `nodes.length === 0`. (2) if it succeeds,
+    // `install_candidate_components` does its own clear pass, so
+    // doing one here is at worst idempotent.
+    if (circuitHandle !== null) {
+      try {
+        const cleared = wasm.clearCircuitComponents(circuitHandle);
+        get().applyGraph(cleared);
+      } catch (err) {
+        console.warn("clearCircuitComponents failed:", err);
+      }
+    }
+
     try {
-      const result = wasm.autoGenerateAndStore(handle, src, tgt);
+      const result = wasm.autoGenerateCandidates(src, tgt, {
+        stringency: get().stringency,
+        top_n: 5,
+        ...get().autoLensHints,
+      });
       set({
-        evaluationError: null,
-        autoLensHandle: result.lensHandle,
-        autoLensComplementHandle: null,
-        autoLensStatus: "success",
+        autoLensCandidates: result.candidates,
+        selectedCandidateIdx: result.candidates.length > 0 ? 0 : null,
         autoLensError: null,
+        discoveredAnchors: [],
+      });
+      if (result.candidates.length > 0) {
+        // selectCandidate sets autoLensStatus = "success" + installs
+        // the chain's components via installCandidateComponents.
+        get().selectCandidate(0);
+      } else {
+        // wasm returned an empty list without throwing — treat as
+        // no-mapping so downstream gating (`autoLensError !== null`)
+        // still lights up the empty-state overlay.
+        set({
+          autoLensStatus: "failed",
+          autoLensError: "no candidates returned",
+          autoLensHandle: null,
+          autoLensChainSteps: [],
+          autoLensSchemaMapping: null,
+        });
+      }
+    } catch (err) {
+      // No morphism (or another upstream error). Pull the anchors
+      // the aligners found so the user can see partial progress and
+      // lock a hint to guide the retry. Also compute a bare schema
+      // mapping from the source/target graphs directly so the
+      // SchemaMapping / TheoryDiff / HintEditor widgets have
+      // populated state to render against — the mapping view is
+      // informative even when no lens compiled.
+      const message = err instanceof Error ? err.message : String(err);
+      let discovered: wasm.AnchorProposal[] = [];
+      try {
+        const anchors = wasm.discoverAnchors(src, tgt, {
+          stringency: get().stringency,
+        });
+        discovered = anchors.anchors;
+      } catch (discoverErr) {
+        console.warn("discoverAnchors failed:", discoverErr);
+      }
+      let fallbackMapping: wasm.SchemaMappingDesc | null = null;
+      try {
+        fallbackMapping = wasm.computeSchemaMapping(src, tgt);
+      } catch (mapErr) {
+        console.warn("computeSchemaMapping failed:", mapErr);
+      }
+      // Synthesize a theory-level chain from the bare mapping so
+      // TheoryDiffModal has steps to render. One step per added or
+      // removed vertex is the coarse but honest summary ("this
+      // vertex would need to be added / this one dropped"). No
+      // data-level side effects, because no lens compiled.
+      const syntheticChainSteps: typeof get extends never
+        ? never
+        : ReturnType<typeof get>["autoLensChainSteps"] = fallbackMapping
+        ? [
+            ...fallbackMapping.added_vertices.map((v) => ({
+              name: `add_sort(${v})`,
+              sourceTransform: "Identity",
+              targetTransform: `AddSort(${v})`,
+            })),
+            ...fallbackMapping.removed_vertices.map((v) => ({
+              name: `drop_sort(${v})`,
+              sourceTransform: `DropSort(${v})`,
+              targetTransform: "Identity",
+            })),
+          ]
+        : [];
+      set({
+        autoLensStatus: "failed",
+        autoLensError: message,
+        autoLensCandidates: [],
+        selectedCandidateIdx: null,
+        autoLensHandle: null,
+        autoLensChainSteps: syntheticChainSteps,
+        autoLensSchemaMapping: fallbackMapping
+          ? {
+              vertexRemap: fallbackMapping.vertex_remap,
+              addedVertices: fallbackMapping.added_vertices,
+              removedVertices: fallbackMapping.removed_vertices,
+              survivingVertices: fallbackMapping.surviving_vertices,
+              fieldTransforms: fallbackMapping.field_transforms,
+            }
+          : null,
+        discoveredAnchors: discovered,
+      });
+    }
+  },
+
+  selectCandidate(idx) {
+    const candidates = get().autoLensCandidates;
+    if (idx < 0 || idx >= candidates.length) return;
+    const candidate = candidates[idx];
+    const circuitHandle = get().circuitHandle;
+    const src = get().sourceSchemaHandle;
+    const tgt = get().targetSchemaHandle;
+
+    set({
+      selectedCandidateIdx: idx,
+      autoLensHandle: candidate.lens_handle,
+      autoLensComplementHandle: null,
+      autoLensStatus: "success",
+      autoLensError: null,
+    });
+
+    // Install the candidate's chain as editable circuit components
+    // so edit mode reflects the selected lens and the downstream
+    // widgets (LensChain, SchemaMapping, TheoryDiff) have their
+    // state. The wasm entry re-applies the coverage gate defensively
+    // — if the candidate somehow slipped past the generation-time
+    // filter, install throws and we fall through to the no-mapping
+    // UX rather than dumping a DropOp pile on the canvas.
+    if (circuitHandle === null || src === null || tgt === null) return;
+    try {
+      const result = wasm.installCandidateComponents(
+        circuitHandle,
+        candidate.lens_handle,
+        src,
+        tgt,
+      );
+      set({
         autoLensChainSteps: result.chainSteps.map((s) => ({
           name: s.name,
           sourceTransform: s.source_transform,
@@ -860,117 +1015,7 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
         autoLensChainSteps: [],
         autoLensSchemaMapping: null,
       });
-      console.warn("Auto-lens generation failed:", err);
     }
-  },
-
-  /**
-   * Hint-guided regeneration. Stores the spec on `autoLensHints`, runs
-   * `autoGenerateWithHintsAndStore`, and updates the same auto-lens
-   * fields as `autoGenerateLens`. Errors don't clear the prior chain;
-   * the user can iterate on hints without losing the last good state.
-   */
-  regenerateWithHints(hints) {
-    const handle = get().circuitHandle;
-    const src = get().sourceSchemaHandle;
-    const tgt = get().targetSchemaHandle;
-    if (handle === null || src === null || tgt === null) return;
-    set({ autoLensHints: hints });
-    try {
-      const result = wasm.autoGenerateWithHintsAndStore(handle, src, tgt, hints);
-      set({
-        evaluationError: null,
-        autoLensHandle: result.lensHandle,
-        autoLensComplementHandle: null,
-        autoLensStatus: "success",
-        autoLensError: null,
-        autoLensChainSteps: result.chainSteps.map((s) => ({
-          name: s.name,
-          sourceTransform: s.source_transform,
-          targetTransform: s.target_transform,
-        })),
-        autoLensSchemaMapping: {
-          vertexRemap: result.schemaMapping.vertex_remap,
-          addedVertices: result.schemaMapping.added_vertices,
-          removedVertices: result.schemaMapping.removed_vertices,
-          survivingVertices: result.schemaMapping.surviving_vertices,
-          fieldTransforms: result.schemaMapping.field_transforms,
-        },
-      });
-      get().applyGraph(result.graph);
-    } catch (err) {
-      const msg = String(err).replace(/^Error:\s*/i, "");
-      set({ autoLensStatus: "failed", autoLensError: msg });
-      console.warn("Hint-guided auto-lens generation failed:", err);
-    }
-  },
-
-  setHints(hints) {
-    set({ autoLensHints: hints });
-  },
-
-  setStringency(stringency) {
-    set({ stringency });
-    get().generateCandidates();
-  },
-
-  generateCandidates() {
-    const src = get().sourceSchemaHandle;
-    const tgt = get().targetSchemaHandle;
-    if (src === null || tgt === null) return;
-    try {
-      const result = wasm.autoGenerateCandidates(src, tgt, {
-        stringency: get().stringency,
-        top_n: 5,
-        ...get().autoLensHints,
-      });
-      set({
-        autoLensCandidates: result.candidates,
-        selectedCandidateIdx: result.candidates.length > 0 ? 0 : null,
-        autoLensError: null,
-        discoveredAnchors: [],
-      });
-      if (result.candidates.length > 0) {
-        get().selectCandidate(0);
-      }
-    } catch (err) {
-      // No morphism (or another upstream error). Pull the anchors the
-      // aligners found so the user can see partial progress and lock
-      // a hint to guide the retry.
-      const message = err instanceof Error ? err.message : String(err);
-      let discovered: wasm.AnchorProposal[] = [];
-      try {
-        const anchors = wasm.discoverAnchors(src, tgt, {
-          stringency: get().stringency,
-        });
-        discovered = anchors.anchors;
-      } catch (discoverErr) {
-        console.warn("discoverAnchors failed:", discoverErr);
-      }
-      set({
-        autoLensCandidates: [],
-        selectedCandidateIdx: null,
-        autoLensError: message,
-        discoveredAnchors: discovered,
-      });
-    }
-  },
-
-  selectCandidate(idx) {
-    const candidates = get().autoLensCandidates;
-    if (idx < 0 || idx >= candidates.length) return;
-    const candidate = candidates[idx];
-    set({
-      selectedCandidateIdx: idx,
-      autoLensHandle: candidate.lens_handle,
-      autoLensComplementHandle: null,
-      autoLensStatus: "success",
-      autoLensError: null,
-    });
-    // Install field-level components from the selected candidate's
-    // chain by re-running auto_generate_and_store with the candidate
-    // already stored — the frontend evaluation path will use the
-    // candidate's lens_handle directly.
   },
 
   promoteAnchorToHint(src, tgt) {
