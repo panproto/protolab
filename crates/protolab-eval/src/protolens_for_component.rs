@@ -566,8 +566,7 @@ mod tests {
             }
         }"#;
         let lexicon: serde_json::Value = serde_json::from_str(bsky_lexicon).unwrap();
-        let schema =
-            panproto_protocols::web_document::atproto::parse_lexicon(&lexicon).unwrap();
+        let schema = panproto_protocols::web_document::atproto::parse_lexicon(&lexicon).unwrap();
         let root = find_root_vertex(&schema).expect("root");
         assert_eq!(
             root.as_str(),
