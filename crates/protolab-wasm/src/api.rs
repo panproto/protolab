@@ -1482,7 +1482,7 @@ fn auto_generate_candidates_inner(
         || !opts.excluded_targets.is_empty()
         || !opts.scope_pairs.is_empty();
 
-    let candidates = if has_hints {
+    let mut candidates = if has_hints {
         let parts = HintParts {
             anchors: opts.anchors,
             scope_pairs: opts.scope_pairs,
@@ -1506,6 +1506,23 @@ fn auto_generate_candidates_inner(
         auto_generate_candidates(&source, &target, &protocol, &config, opts.top_n)
             .map_err(|e| WasmError::DeserializationFailed(format!("candidates: {e}")))?
     };
+
+    // Discard degenerate "drop every source vertex, add every target
+    // vertex" chains. These are legal schema morphisms (empty
+    // intersection, fill both sides from nothing) but they're useless
+    // as lenses — the user sees a hundred-step DropOp/AddOp pile
+    // that can't transform any real data. Surface "no morphism" to
+    // the frontend instead so the discovered-anchors UX kicks in and
+    // the user can pin a hint. The threshold is deliberately low
+    // (≥15% of vertices must be naturality-mapped): we still allow
+    // sparse-overlap cases to come through, we only cut the ones
+    // where almost nothing is shared.
+    candidates.retain(|c| c.coverage >= 0.15);
+    if candidates.is_empty() {
+        return Err(WasmError::DeserializationFailed(
+            "candidates: no morphism found between schemas (every candidate was below the useful-coverage threshold — drop-only chain)".into(),
+        ));
+    }
 
     let descs: Vec<CandidateDesc> = candidates.iter().map(candidate_to_desc).collect();
 

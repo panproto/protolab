@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.3] — 2026-04-24
+
+### Fixed
+
+- **Don't surface degenerate drop-everything lenses as candidates.**
+  When the CSP finds a morphism whose `vertex_map` covers almost
+  nothing (e.g. the "drop every source vertex, add every target
+  vertex" chain that falls out of two nominally-different schemas
+  with no naturality overlap), the user saw a hundred-step pile of
+  `DropOp(...) / DropOp(...) / AddOp(...)` that can't do anything
+  useful to real data. The wasm bridge now drops any candidate whose
+  `coverage < 0.15` and, if every candidate fails that bar, returns
+  a "no morphism found" error instead — which wires through to the
+  new discovered-anchors empty-state UX, giving the user a path to
+  pin a hint rather than stare at a nonsense chain.
+
 ## [0.6.2] — 2026-04-24
 
 ### Fixed
