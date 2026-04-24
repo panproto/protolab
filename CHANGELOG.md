@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.2] — 2026-04-24
+
+### Fixed
+
+- **Atproto-lexicon identity round-trip produced `[]`.** Setting source
+  = target on the Lexicon Mapper (identity lens) caused Run to emit
+  `[]` instead of echoing the input, because
+  `find_root_vertex` returned the record wrapper (e.g.
+  `app.bsky.feed.post`) whose only outgoing edge is a single anonymous
+  `record-schema` edge to `:body`. `to_json`'s `is_list_vertex`
+  heuristic reads that as "vertex with all-unnamed outgoing edges ⇒
+  list", so every round-trip collapsed to an empty array. Fix descends
+  the record wrapper in `find_root_vertex` when the primary entry has
+  exactly one `record-schema` edge, landing on the body vertex that
+  actually matches the JSON input shape. Regression test added.
+- Dropped the decorative `🧭` and `🎯` emoji on the SchemaMappingWidget
+  empty state and the `⚡`/`❄` emoji on the ComponentNode hot/cold
+  port tooltip. They didn't fit the interface's terminal-monospace
+  aesthetic.
+- `CanvasEmptyState`'s zustand selector for pinned anchors returned a
+  fresh `{}` literal when `autoLensHints.anchors` was undefined,
+  triggering an infinite re-render and crashing React at boot with
+  "Maximum update depth exceeded". Fix is a frozen module-scoped
+  `EMPTY_ANCHORS` constant.
+
 ## [0.6.1] — 2026-04-24
 
 ### Changed

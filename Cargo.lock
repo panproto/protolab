@@ -1184,7 +1184,7 @@ dependencies = [
 
 [[package]]
 name = "protolab-core"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "panproto-gat",
  "panproto-inst",
@@ -1200,13 +1200,14 @@ dependencies = [
 
 [[package]]
 name = "protolab-eval"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "panproto-expr",
  "panproto-expr-parser",
  "panproto-gat",
  "panproto-inst",
  "panproto-lens",
+ "panproto-protocols",
  "panproto-schema",
  "protolab-core",
  "protolab-schema",
@@ -1218,7 +1219,7 @@ dependencies = [
 
 [[package]]
 name = "protolab-schema"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "panproto-gat",
  "panproto-lens",
@@ -1232,7 +1233,7 @@ dependencies = [
 
 [[package]]
 name = "protolab-wasm"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "panproto-check",
  "panproto-expr",

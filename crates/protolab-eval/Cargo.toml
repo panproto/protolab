@@ -19,3 +19,4 @@ thiserror.workspace = true
 
 [dev-dependencies]
 smallvec.workspace = true
+panproto-protocols.workspace = true

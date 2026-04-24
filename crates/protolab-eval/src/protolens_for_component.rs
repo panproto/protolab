@@ -302,8 +302,31 @@ fn component_to_field_transforms_inner(
 /// deterministically picked the wrong vertex on schemas like
 /// `app.bsky.feed.post` (it landed on `#replyRef` because it had no
 /// inbound arrow before the upstream parser fix in panproto#35).
+///
+/// Atproto-lexicon adjustment: the lexicon parser wraps every record
+/// with an intermediate `:body` vertex reached by a single anonymous
+/// `record-schema` edge. Input JSON (`{"text":"hi",...}`) corresponds
+/// to the body's properties, not to the record wrapper's single
+/// child, so feeding the wrapper vertex to `parse_json` makes the
+/// round-trip collapse — `is_list_vertex` treats the unnamed edge as
+/// a list slot and `to_json` emits `[]`. When the entry is a record
+/// wrapper we therefore step through to the body; callers that want
+/// the wrapper can use `panproto_schema::primary_entry` directly.
 pub fn find_root_vertex(schema: &Schema) -> Option<Name> {
-    panproto_schema::primary_entry(schema).cloned()
+    let primary = panproto_schema::primary_entry(schema).cloned()?;
+    Some(descend_record_wrapper(schema, primary))
+}
+
+/// If `vertex` has exactly one outgoing edge and that edge's kind is
+/// `"record-schema"`, return the edge's target; otherwise return
+/// `vertex` unchanged. This unwraps the atproto-lexicon record
+/// wrapper so JSON round-trips hit the body vertex.
+fn descend_record_wrapper(schema: &Schema, vertex: Name) -> Name {
+    let edges = schema.outgoing_edges(vertex.as_str());
+    if edges.len() == 1 && edges[0].kind.as_str() == "record-schema" {
+        return edges[0].tgt.clone();
+    }
+    vertex
 }
 
 /// Map a single component to a `ProtolensChain` based on its type and params.
@@ -515,5 +538,41 @@ mod tests {
         let circuit = protolab_schema::CircuitBuilder::new().build();
         let chain = circuit_to_protolens_chain(&circuit).unwrap();
         assert_eq!(chain.steps.len(), 0);
+    }
+
+    #[test]
+    fn find_root_vertex_descends_atproto_record_wrapper() {
+        // Minimal atproto-lexicon-shaped schema: a record vertex with a
+        // single anonymous `record-schema` edge to a `:body` object
+        // vertex, which in turn has named prop edges. Before the
+        // descent fix, `find_root_vertex` returned the record wrapper
+        // and callers fed it to `parse_json`/`to_json`, which treated
+        // the unnamed record-schema edge as a list slot and collapsed
+        // every round-trip to `[]`.
+        let bsky_lexicon = r#"{
+            "id": "app.bsky.feed.post",
+            "defs": {
+                "main": {
+                    "type": "record",
+                    "key": "tid",
+                    "record": {
+                        "type": "object",
+                        "required": ["text"],
+                        "properties": {
+                            "text": { "type": "string" }
+                        }
+                    }
+                }
+            }
+        }"#;
+        let lexicon: serde_json::Value = serde_json::from_str(bsky_lexicon).unwrap();
+        let schema =
+            panproto_protocols::web_document::atproto::parse_lexicon(&lexicon).unwrap();
+        let root = find_root_vertex(&schema).expect("root");
+        assert_eq!(
+            root.as_str(),
+            "app.bsky.feed.post:body",
+            "find_root_vertex must step past the record wrapper; landed on {root}",
+        );
     }
 }
