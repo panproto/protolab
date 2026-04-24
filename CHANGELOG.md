@@ -7,22 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-04-23
+
+### Changed
+
+- **panproto v0.37.0** (bump from v0.34.1). Picks up six new alignment
+  strategies in `panproto-mig`: `suffix_anchors` (matches on the
+  terminal dotted segment, so `app.bsky.feed.post.tags` ↔
+  `site.standard.document.tags` is found without hints),
+  `edge_label_anchors`, `description_anchors`, `neighborhood_anchors`,
+  `wl_anchors` (Weisfeiler-Leman structural refinement), and scaffolded
+  `embedding_anchors`. Fixes the cross-NSID auto-lens failure reported
+  in panproto#48 where two atproto lexicons with shared field names
+  used to collapse to a 123-step all-`DropOp` chain at Balanced
+  stringency.
+- `ApplyExpr` round-trip: when a component is tagged `coercion: "iso"`
+  the lens now trusts the declared inverse rather than silently
+  restoring the pre-transform value from the complement. A lying
+  inverse is therefore visible on unmodified round-trip, matching the
+  contract of the coercion class. Tests updated.
+
 ### Added
 
 - Open Graph card (`app/public/og.png`, 1200×630) rendered from
   `app/public/og.html` via headless Chrome. Depicts a three-node
   `RenameField → MapItems → CoerceType` circuit in the app's actual
-  visual language, with a `protolab` wordmark and the tagline "a
-  patchbay for your schemas."
+  visual language.
 - `og:*` and `twitter:*` meta tags in `app/index.html` pointing at
   `https://panproto.dev/protolab/og.png` so rich embeds populate on
   Twitter/X, Slack, LinkedIn, Discord, and iMessage.
-
-### Changed
-
 - README rewritten: trimmed feature-dump bullet lists, dropped the
-  self-congratulatory sections, kept the useful bits (component table,
-  install steps, project layout).
+  self-congratulatory sections, kept the component table, install
+  steps, and project layout.
 
 ## [0.5.0] — 2026-04-17
 

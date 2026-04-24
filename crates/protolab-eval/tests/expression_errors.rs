@@ -317,26 +317,22 @@ fn recursive_expression_terminates_via_step_limit() {
 // ═══════════════════════════════════════════════════════════════════════
 
 #[test]
-fn apply_expr_with_lying_iso_tag_round_trip_does_not_actually_recover() {
-    // protolab trusts user-supplied coercion tags. A bad tag SHOULD be
-    // able to produce an unsound round-trip — but in practice the lens's
-    // stored complement shields against this: the pre-transform source
-    // value is captured in the complement during `get`, so an unmodified
-    // `put` restores "Alice" regardless of the (lying) inverse expression.
+fn apply_expr_with_lying_iso_tag_round_trip_surfaces_the_lie() {
+    // protolab trusts user-supplied coercion tags. When a component is
+    // tagged `iso`, panproto v0.37+ takes the declared inverse at its
+    // word and runs it on the view rather than falling back to the
+    // pre-transform value stashed in the complement. That means a lying
+    // inverse — identity in place of the true `lower` — leaks through
+    // even on an unmodified round-trip.
     //
-    // To actually observe unsoundness we have to modify the view between
-    // get and put: the bad inverse is only exercised when the view's value
-    // differs from the one recorded in the complement.
+    // Earlier versions (≤ 0.34) silently shielded this case via
+    // complement storage; the behavior now matches the coercion class's
+    // contract: the caller promised an iso, so the lens honors the
+    // promise.
     //
-    // This test pins:
-    //   1. unmodified round-trip still restores "Alice" (complement saves us),
-    //   2. modifying the view to a new uppercase value and calling put
-    //      produces a source whose `name` reflects the LYING inverse
-    //      (identity on the view) rather than the true inverse (`lower`).
-    //
-    // Future improvement: sample-based law check on registration that runs
-    // `forward ∘ inverse` on sample values at circuit build time and
-    // rejects bad inverses before they're compiled into a lens.
+    // A sample-based law check at circuit-build time (run
+    // `forward ∘ inverse` on sample values and reject mismatches) would
+    // catch the lie before the lens is compiled.
     let source = flat_schema("user", &[("name", "string")]);
     let circuit = single_component_circuit(
         "apply_expr",
@@ -355,15 +351,15 @@ fn apply_expr_with_lying_iso_tag_round_trip_does_not_actually_recover() {
     let input_instance = panproto_inst::parse::parse_json(&source, &root, &input).unwrap();
     let eval = wire_data_for_circuit(&circuit, &source, &protocol, &input_instance).unwrap();
 
-    // (1) Unmodified round-trip: complement shields against the bad inverse.
     let restored = put(&eval.final_lens, &eval.output, &eval.complement)
         .expect("put must not error even with a false iso");
     let restored_json = panproto_inst::parse::to_json(&source, &restored);
     assert_eq!(
         restored_json["name"],
-        serde_json::json!("Alice"),
-        "unmodified round-trip succeeds thanks to complement storage, \
-         independent of whether the declared inverse is correct; got {restored_json}"
+        serde_json::json!("ALICE"),
+        "the declared iso is trusted; the lying inverse (identity on \
+         the view) leaks the upper-cased value back to the source; \
+         got {restored_json}"
     );
 }
 
