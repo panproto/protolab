@@ -1,0 +1,25 @@
+[package]
+name = "protolab-snapshot"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# Build-time tool that pulls every lexicon lexicon.garden exposes,
+# runs panproto's auto-lens pairwise, and writes a static manifest
+# the frontend can load to annotate the NSID autocomplete with an
+# "auto-lens known to work / not work / unknown" indicator. The
+# snapshot is purely informational — the live app still runs auto-
+# generation on demand.
+
+[[bin]]
+name = "protolab-snapshot"
+path = "src/main.rs"
+
+[dependencies]
+panproto-schema.workspace = true
+panproto-lens.workspace = true
+panproto-protocols.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+ureq = { version = "3", features = ["json"] }
+clap = { version = "4", features = ["derive"] }

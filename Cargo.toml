@@ -4,11 +4,12 @@ members = [
     "crates/protolab-core",
     "crates/protolab-eval",
     "crates/protolab-wasm",
+    "crates/protolab-snapshot",
 ]
 resolver = "2"
 
 [workspace.package]
-version = "0.6.3"
+version = "0.7.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/panproto/protolab"

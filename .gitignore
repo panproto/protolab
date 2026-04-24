@@ -42,3 +42,4 @@ playwright-report/
 
 # Vitest / coverage
 app/coverage/
+.snapshot-cache/

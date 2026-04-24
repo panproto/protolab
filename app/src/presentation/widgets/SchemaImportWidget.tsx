@@ -6,6 +6,70 @@ import type { ProtocolMeta } from "../../wasm/bridge";
 import { getProp } from "./widgetHelpers";
 import { exampleRecordForNsid } from "../lexiconExamples";
 import { fetchLexiconAutocomplete, type LexiconSuggestion } from "../lexiconGarden";
+import type { PairStatus } from "../../lib/autoLensSnapshot";
+
+// Small colored dot + label shown next to each NSID suggestion in
+// the autocomplete dropdown, communicating whether a precomputed
+// auto-lens exists for the pair (the suggestion ↔ the other side's
+// assigned schema). The snapshot is sparse by design: only
+// known-working pairs are stored, and anything not in the snapshot
+// reports as "unknown" — which is the right default for any
+// schema added to lexicon.garden after the last snapshot build, or
+// any custom user-imported schema.
+function AutoLensBadge({
+  status,
+  hasOther,
+}: {
+  status: PairStatus;
+  hasOther: boolean;
+}) {
+  if (!hasOther) return null;
+  const spec: Record<PairStatus, { dot: string; label: string; title: string }> = {
+    works: {
+      dot: "#4CAF50",
+      label: "auto",
+      title: "Auto-lens known to work for this pair.",
+    },
+    "no-lens": {
+      dot: "#F44336",
+      label: "no auto",
+      title:
+        "Precomputed: no non-degenerate auto-lens between these schemas. You'll have to build the circuit by hand or pin hints.",
+    },
+    unknown: {
+      dot: "#666",
+      label: "unknown",
+      title:
+        "Not in the precomputed snapshot yet (added to the garden recently, or a custom import). The app will still try to auto-generate on demand.",
+    },
+  };
+  const s = spec[status];
+  return (
+    <span
+      title={s.title}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        fontSize: 9,
+        color: "#9aa0ab",
+        letterSpacing: "0.02em",
+        whiteSpace: "nowrap",
+      }}
+    >
+      <span
+        style={{
+          width: 6,
+          height: 6,
+          borderRadius: "50%",
+          background: s.dot,
+          flexShrink: 0,
+        }}
+      />
+      {s.label}
+    </span>
+  );
+}
 
 /**
  * Unified multi-protocol schema import widget. Replaces the old
@@ -86,6 +150,10 @@ export function SchemaImportForm({
   const otherSchemaHandle = useCircuitStore((s) =>
     role === "target" ? s.sourceSchemaHandle : s.targetSchemaHandle,
   );
+  const otherNsid = useCircuitStore((s) =>
+    role === "target" ? s.sourceNsid : s.targetNsid,
+  );
+  const autoLensSnapshot = useCircuitStore((s) => s.autoLensSnapshot);
 
   // Rehydration: look up the schema currently assigned to this role so
   // the user can see their work persisted across mode switches.
@@ -148,6 +216,13 @@ export function SchemaImportForm({
   const isAtproto = selectedProtocol === "atproto";
 
   const installSchema = (result: wasm.SchemaImportResult, displayLabel: string) => {
+    // Track NSID separately for atproto-resolved schemas so the
+    // snapshot-indicator can look up the pair. For non-atproto
+    // imports (pasted native schema, custom protocol), displayLabel
+    // is the protocol name rather than an NSID, so leave the NSID
+    // field null — the snapshot reports "unknown" in that case,
+    // which is the correct answer.
+    const nsid = result.summary.protocol === "atproto" ? displayLabel : null;
     useCircuitStore.setState((s) => ({
       importedSchemas: [
         ...s.importedSchemas,
@@ -159,6 +234,7 @@ export function SchemaImportForm({
           edgeCount: result.summary.edge_count,
         },
       ],
+      ...(role === "target" ? { targetNsid: nsid } : { sourceNsid: nsid }),
     }));
     if (role === "target") {
       assignTargetSchema(result.handle);
@@ -471,25 +547,43 @@ export function SchemaImportForm({
                   zIndex: 100,
                 }}
               >
-                {suggestions.map((s, i) => (
-                  <li
-                    key={s.nsid}
-                    role="option"
-                    aria-selected={i === highlightedIdx}
-                    onMouseDown={(e) => { e.preventDefault(); chooseSuggestion(s); }}
-                    onMouseEnter={() => setHighlightedIdx(i)}
-                    style={{
-                      padding: "6px 10px",
-                      cursor: "pointer",
-                      fontFamily: "ui-monospace, SF Mono, monospace",
-                      fontSize: 12,
-                      color: i === highlightedIdx ? "#fff" : "#ddd",
-                      background: i === highlightedIdx ? "oklch(0.2 0.02 280)" : "transparent",
-                    }}
-                  >
-                    {s.nsid}
-                  </li>
-                ))}
+                {suggestions.map((s, i) => {
+                  // Snapshot indicator: look the pair up in the
+                  // direction the lens would run. Role === "target"
+                  // means the suggestion IS the target, so the pair
+                  // is (source, suggestion); for role === "source",
+                  // pair is (suggestion, target).
+                  const pairStatus = autoLensSnapshot
+                    ? role === "target"
+                      ? autoLensSnapshot.status(otherNsid, s.nsid)
+                      : autoLensSnapshot.status(s.nsid, otherNsid)
+                    : "unknown";
+                  return (
+                    <li
+                      key={s.nsid}
+                      role="option"
+                      aria-selected={i === highlightedIdx}
+                      onMouseDown={(e) => { e.preventDefault(); chooseSuggestion(s); }}
+                      onMouseEnter={() => setHighlightedIdx(i)}
+                      style={{
+                        padding: "6px 10px",
+                        cursor: "pointer",
+                        fontFamily: "ui-monospace, SF Mono, monospace",
+                        fontSize: 12,
+                        color: i === highlightedIdx ? "#fff" : "#ddd",
+                        background: i === highlightedIdx ? "oklch(0.2 0.02 280)" : "transparent",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                      }}
+                    >
+                      <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {s.nsid}
+                      </span>
+                      <AutoLensBadge status={pairStatus} hasOther={otherNsid !== null} />
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>
@@ -503,6 +597,24 @@ export function SchemaImportForm({
                   </a>
                 </>}
           </div>
+          {otherNsid && autoLensSnapshot && (
+            <div
+              style={{
+                fontSize: 10,
+                color: "#666",
+                marginTop: 4,
+                lineHeight: 1.5,
+              }}
+            >
+              <span style={{ color: "#4CAF50" }}>●</span> auto ={" "}
+              precomputed lens available <span style={{ margin: "0 4px" }}>·</span>
+              <span style={{ color: "#F44336" }}>●</span> no auto ={" "}
+              known to fail <span style={{ margin: "0 4px" }}>·</span>
+              <span style={{ color: "#666" }}>●</span> unknown = outside
+              the snapshot ({autoLensSnapshot.schemaCount} lexicons,{" "}
+              {autoLensSnapshot.meta.generated_at.slice(0, 10)})
+            </div>
+          )}
         </>
       )}
 

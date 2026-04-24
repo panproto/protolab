@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-04-24
+
+### Added
+
+- **Auto-lens compatibility snapshot + dropdown indicator.** A new
+  `protolab-snapshot` rust binary crawls lexicon.garden's
+  `/browse` tree, loads every lexicon it can parse, and runs
+  panproto's auto-generator pairwise at Balanced stringency. It
+  writes a sparse JSON manifest (only pairs that produce a
+  non-degenerate lens, keyed by directional src→tgt) to
+  `app/public/auto-lens-snapshot.json`. The frontend loads it on
+  boot; the NSID autocomplete dropdown in the schema import form
+  shows a colored chip next to each suggestion indicating whether
+  the (already-assigned side ↔ suggestion) pair has a known
+  working auto-lens, is known to not have one, or is outside the
+  snapshot ("unknown" — added to the garden after the last
+  rebuild, or a user-imported custom schema). The live app still
+  runs auto-gen on demand; the snapshot is strictly a UX hint.
+  Regenerate with `cargo run -p protolab-snapshot --release --
+  --out app/public/auto-lens-snapshot.json`.
+- `sourceNsid` / `targetNsid` on the store so the indicator can
+  pick a lookup direction.
+
 ## [0.6.3] — 2026-04-24
 
 ### Fixed

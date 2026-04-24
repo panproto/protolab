@@ -38,6 +38,7 @@ import { PresentationCanvas } from "./presentation/PresentationCanvas";
 import { PresentationToolbar } from "./presentation/PresentationToolbar";
 import { readUrlState } from "./presentation/url";
 import { loadLexiconMapperTemplate } from "./presentation/templates/lexiconMapper";
+import { loadAutoLensSnapshot } from "./lib/autoLensSnapshot";
 import * as wasm from "./wasm/bridge";
 
 const nodeTypes = { component: ComponentNode };
@@ -224,6 +225,16 @@ export default function App() {
     (async () => {
       await initDemo();
       if (cancelled) return;
+      // Fire-and-forget snapshot preload. The autocomplete chips can
+      // safely render "unknown" until the fetch lands, and the
+      // snapshot module memoizes the fetch so re-queries are free.
+      loadAutoLensSnapshot()
+        .then((s) =>
+          useCircuitStore.setState({ autoLensSnapshot: s }),
+        )
+        .catch(() => {
+          /* EMPTY_SNAPSHOT fallback already applied inside loader */
+        });
       const url = readUrlState();
 
       if (url.circuitJson) {
