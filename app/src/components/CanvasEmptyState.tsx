@@ -28,6 +28,11 @@ const CHIP_HOVER = "oklch(0.26 0.01 250)";
 const ACCENT_GREEN = "#4CAF50";
 const ACCENT_BLUE = "#2196F3";
 
+// Stable default so the selector below doesn't return a fresh `{}`
+// reference on every render — zustand compares by identity and would
+// trigger infinite re-render loops otherwise.
+const EMPTY_ANCHORS: Readonly<Record<string, string>> = Object.freeze({});
+
 export function CanvasEmptyState() {
   const shouldShow = useCircuitStore((s) => {
     if (s.sourceSchemaHandle === null || s.targetSchemaHandle === null)
@@ -44,7 +49,9 @@ export function CanvasEmptyState() {
   const openTheoryDiff = useCircuitStore((s) => s.openTheoryDiff);
   const hasCandidates = useCircuitStore((s) => s.autoLensCandidates.length > 0);
   const discoveredAnchors = useCircuitStore((s) => s.discoveredAnchors);
-  const pinnedAnchors = useCircuitStore((s) => s.autoLensHints.anchors ?? {});
+  const pinnedAnchors = useCircuitStore(
+    (s) => s.autoLensHints.anchors ?? EMPTY_ANCHORS,
+  );
   const promoteAnchorToHint = useCircuitStore((s) => s.promoteAnchorToHint);
   const autoLensError = useCircuitStore((s) => s.autoLensError);
 
