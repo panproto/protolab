@@ -279,23 +279,6 @@ interface CircuitState {
    * UX: the user can promote a subset to hints and retry.
    */
   discoveredAnchors: wasm.AnchorProposal[];
-  /**
-   * Precomputed auto-lens compatibility snapshot, loaded once on
-   * app boot. `null` until the fetch lands (chips render as
-   * "unknown" until then). Used by the schema-import autocomplete
-   * to show a per-suggestion indicator of "auto-lens known to work
-   * against the other side" without having to actually run the
-   * generator for every suggestion.
-   */
-  autoLensSnapshot: import("../lib/autoLensSnapshot").LoadedSnapshot | null;
-  /** NSID of the schema currently assigned to the source role,
-   * or `null` when no atproto lexicon is assigned (either
-   * nothing is assigned, or the source is a non-atproto schema
-   * for which an NSID doesn't apply). Used by the autocomplete
-   * snapshot-indicator to pick a lookup direction. */
-  sourceNsid: string | null;
-  /** Mirror of `sourceNsid` for the target role. */
-  targetNsid: string | null;
   /** Schema currently open in the viewer modal, or null when closed. */
   schemaViewerHandle: number | null;
   /** True when the hint editor modal is open. */
@@ -506,9 +489,6 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
   autoLensCandidates: [],
   selectedCandidateIdx: null,
   discoveredAnchors: [],
-  autoLensSnapshot: null,
-  sourceNsid: null,
-  targetNsid: null,
   schemaViewerHandle: null,
   hintEditorOpen: false,
   theoryDiffOpen: false,
