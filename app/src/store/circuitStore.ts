@@ -273,6 +273,12 @@ interface CircuitState {
   autoLensCandidates: wasm.LensCandidateDesc[];
   /** Index of the currently selected candidate, or null if none. */
   selectedCandidateIdx: number | null;
+  /**
+   * Anchors the alignment strategies discovered, populated even when
+   * the CSP search failed to find a morphism. Drives the "no mapping"
+   * UX: the user can promote a subset to hints and retry.
+   */
+  discoveredAnchors: wasm.AnchorProposal[];
   /** Schema currently open in the viewer modal, or null when closed. */
   schemaViewerHandle: number | null;
   /** True when the hint editor modal is open. */
@@ -337,6 +343,11 @@ interface CircuitState {
   generateCandidates(): void;
   /** Select a specific candidate by index and install its lens. */
   selectCandidate(idx: number): void;
+  /**
+   * Promote one of the discovered anchors to a persistent hint and
+   * re-run candidate generation so the CSP gets the pinning it needs.
+   */
+  promoteAnchorToHint(src: string, tgt: string): void;
   setInputData(json: string): void;
   runEvaluation(): void;
   applyModifiedOutput(json: string): void;
@@ -477,6 +488,7 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
   stringency: "balanced" as wasm.Stringency,
   autoLensCandidates: [],
   selectedCandidateIdx: null,
+  discoveredAnchors: [],
   schemaViewerHandle: null,
   hintEditorOpen: false,
   theoryDiffOpen: false,
@@ -915,14 +927,32 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
       set({
         autoLensCandidates: result.candidates,
         selectedCandidateIdx: result.candidates.length > 0 ? 0 : null,
+        autoLensError: null,
+        discoveredAnchors: [],
       });
-      // Auto-select the top candidate.
       if (result.candidates.length > 0) {
         get().selectCandidate(0);
       }
     } catch (err) {
-      console.warn("generateCandidates failed:", err);
-      set({ autoLensCandidates: [], selectedCandidateIdx: null });
+      // No morphism (or another upstream error). Pull the anchors the
+      // aligners found so the user can see partial progress and lock
+      // a hint to guide the retry.
+      const message = err instanceof Error ? err.message : String(err);
+      let discovered: wasm.AnchorProposal[] = [];
+      try {
+        const anchors = wasm.discoverAnchors(src, tgt, {
+          stringency: get().stringency,
+        });
+        discovered = anchors.anchors;
+      } catch (discoverErr) {
+        console.warn("discoverAnchors failed:", discoverErr);
+      }
+      set({
+        autoLensCandidates: [],
+        selectedCandidateIdx: null,
+        autoLensError: message,
+        discoveredAnchors: discovered,
+      });
     }
   },
 
@@ -941,6 +971,13 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
     // chain by re-running auto_generate_and_store with the candidate
     // already stored — the frontend evaluation path will use the
     // candidate's lens_handle directly.
+  },
+
+  promoteAnchorToHint(src, tgt) {
+    const current = get().autoLensHints;
+    const nextAnchors = { ...(current.anchors ?? {}), [src]: tgt };
+    set({ autoLensHints: { ...current, anchors: nextAnchors } });
+    get().generateCandidates();
   },
 
   openSchemaViewer(handle) {

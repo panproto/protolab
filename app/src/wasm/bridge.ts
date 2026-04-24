@@ -49,6 +49,7 @@ import init, {
   get_schema_details as get_schema_details_wasm,
   export_schema_json as export_schema_json_wasm,
   auto_generate_candidates as auto_generate_candidates_wasm,
+  discover_anchors as discover_anchors_wasm,
 } from "./pkg/protolab_wasm.js";
 import { encode, decode } from "@msgpack/msgpack";
 
@@ -468,6 +469,38 @@ export function autoGenerateCandidates(
     JSON.stringify(opts),
   );
   return decode(result) as CandidatesResponse;
+}
+
+export interface AnchorProposal {
+  src: string;
+  tgt: string;
+  confidence: number;
+  strategy: string;
+  explanation: string;
+}
+
+export interface DiscoveredAnchors {
+  anchors: AnchorProposal[];
+}
+
+/**
+ * Run the alignment strategies between two schemas WITHOUT invoking
+ * the CSP/morphism search. Returns the anchors the strategies found,
+ * sorted by descending confidence. Used by the "no morphism found"
+ * UX path to show the user which correspondences were discovered so
+ * they can lock them as hints and retry.
+ */
+export function discoverAnchors(
+  sourceHandle: number,
+  targetHandle: number,
+  opts: { stringency?: Stringency } = {},
+): DiscoveredAnchors {
+  const result = discover_anchors_wasm(
+    sourceHandle,
+    targetHandle,
+    JSON.stringify(opts),
+  );
+  return decode(result) as DiscoveredAnchors;
 }
 
 export interface AutoLensEvalResult {

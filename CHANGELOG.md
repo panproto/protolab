@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] — 2026-04-24
+
+### Changed
+
+- **panproto v0.38.0** (bump from v0.37.0). Picks up naturality-aware
+  span exclusion in `panproto-lens` (per-source naturality feasibility
+  instead of kind-only compatibility), a pile of coercion-law-check
+  surface area, and several `panproto-gat` fixes around pattern-
+  matching and typecheck for holes, `case`, and `let`.
+
+### Added
+
+- **"No automatic mapping" UX path.** When `auto_generate_candidates`
+  returns no candidates (common on cross-NSID lexicon mappings like
+  `app.bsky.feed.post → site.standard.document`, where the two
+  vocabularies barely overlap and no naturality-satisfying total
+  morphism exists), the canvas now shows the correspondences the
+  alignment strategies *did* discover — e.g. `tags ↔ tags`,
+  `labels ↔ labels` — with one-click chips that promote an anchor to
+  a persistent hint and re-run the search. Backed by a new
+  `discover_anchors` wasm entry point that runs the strategies
+  without invoking the CSP, so partial discovery is surfaced even
+  when the morphism search fails outright.
+- `circuitStore.promoteAnchorToHint(src, tgt)` appends to the
+  existing `autoLensHints.anchors` map and triggers regeneration.
+
+### Fixed
+
+- `generateCandidates` no longer swallows the no-morphism error into a
+  console warning. It now sets `autoLensError` so the canvas overlay
+  can surface the failure instead of leaving the user staring at an
+  empty graph.
+
 ## [0.6.0] — 2026-04-23
 
 ### Changed

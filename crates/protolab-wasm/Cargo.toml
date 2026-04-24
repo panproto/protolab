@@ -16,6 +16,7 @@ panproto-gat.workspace = true
 panproto-protocols.workspace = true
 panproto-check.workspace = true
 panproto-lens.workspace = true
+panproto-mig.workspace = true
 panproto-inst.workspace = true
 panproto-expr.workspace = true
 panproto-expr-parser.workspace = true

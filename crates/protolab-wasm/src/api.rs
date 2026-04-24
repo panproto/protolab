@@ -1073,6 +1073,36 @@ pub fn auto_generate_with_hints_and_store(
     .map_err(Into::into)
 }
 
+/// Run the alignment strategies between `source_handle` and
+/// `target_handle` WITHOUT the CSP/morphism search. Returns the raw
+/// anchor candidates that the strategies discovered, with each
+/// anchor's source vertex, target vertex, confidence score, and the
+/// strategy tag that proposed it.
+///
+/// The motivating use case is the "no morphism found" UX path: when
+/// [`auto_generate_candidates`] fails, the user deserves to see what
+/// the aligners actually discovered — often two or three high-
+/// confidence pairs like `tags ↔ tags` that they can lock as hints
+/// to bootstrap a manual mapping. Fetching those pairs requires
+/// running the strategies but not the CSP, which is what this
+/// entry point does.
+///
+/// `opts_json` accepts `stringency` and the alias dict shape; all
+/// other options (`top_n`, anchors, exclusions) are ignored — this
+/// is a pure discovery call, no hints, no search.
+///
+/// Returns a msgpack-encoded `{ anchors: [{src, tgt, confidence,
+/// strategy, explanation}, ...] }` object sorted by descending
+/// confidence, then source vertex.
+#[wasm_bindgen]
+pub fn discover_anchors(
+    source_handle: u32,
+    target_handle: u32,
+    opts_json: &str,
+) -> Result<Vec<u8>, JsError> {
+    discover_anchors_inner(source_handle, target_handle, opts_json).map_err(Into::into)
+}
+
 /// Set-wise schema equality: two schemas are treated as equal when
 /// their protocol, vertex set, edge set, and per-vertex constraint
 /// set match (independent of HashMap iteration order). `Schema`
@@ -1504,6 +1534,105 @@ fn auto_generate_candidates_inner(
         .collect();
 
     rmp_serde::to_vec_named(&CandidatesResponseFull { candidates: full })
+        .map_err(|e| WasmError::SerializationFailed(e.to_string()))
+}
+
+fn discover_anchors_inner(
+    source_handle: u32,
+    target_handle: u32,
+    opts_json: &str,
+) -> Result<Vec<u8>, WasmError> {
+    use panproto_lens::Stringency;
+    use panproto_lens::auto_lens::run_strategies_for_tests;
+
+    let source = slab::get_schema(source_handle)?;
+    let target = slab::get_schema(target_handle)?;
+
+    #[derive(serde::Deserialize, Default)]
+    struct Opts {
+        #[serde(default)]
+        stringency: Option<String>,
+    }
+    let opts: Opts = serde_json::from_str(opts_json)
+        .map_err(|e| WasmError::DeserializationFailed(format!("opts: {e}")))?;
+
+    let stringency = match opts.stringency.as_deref() {
+        Some("strict") => Stringency::Strict,
+        Some("balanced") | None => Stringency::Balanced,
+        Some("lenient") => Stringency::Lenient,
+        Some("exploratory") => Stringency::Exploratory,
+        Some(other) => {
+            return Err(WasmError::DeserializationFailed(format!(
+                "unknown stringency: {other}"
+            )));
+        }
+    };
+
+    let config = panproto_lens::auto_lens::AutoLensConfig {
+        stringency,
+        try_overlap: true,
+        ..Default::default()
+    };
+
+    let (raw_anchors, _coerce_proposals) = run_strategies_for_tests(&source, &target, &config);
+
+    // Collapse to a HashMap-resolved pool, then emit the survivors.
+    // The same resolution the CSP seeds on, so the displayed set
+    // matches the one the morphism search actually tried.
+    let resolved = panproto_mig::align::resolve_anchors(&raw_anchors, false);
+
+    #[derive(Serialize)]
+    struct AnchorDesc {
+        src: String,
+        tgt: String,
+        confidence: f64,
+        strategy: String,
+        explanation: String,
+    }
+    #[derive(Serialize)]
+    struct DiscoverAnchorsResponse {
+        anchors: Vec<AnchorDesc>,
+    }
+
+    // For each resolved pair, find the best-confidence raw anchor so
+    // we can report the strategy that won. The raw pool may have
+    // multiple proposals for the same pair; picking the max-confidence
+    // one keeps the display stable.
+    let mut descs: Vec<AnchorDesc> = resolved
+        .into_iter()
+        .map(|(src, tgt)| {
+            let best = raw_anchors
+                .iter()
+                .filter(|a| a.src == src && a.tgt == tgt)
+                .max_by(|a, b| a.confidence.total_cmp(&b.confidence));
+            let (confidence, strategy, explanation) = best.map_or_else(
+                || (1.0, String::from("unknown"), String::new()),
+                |a| {
+                    (
+                        a.confidence,
+                        format!("{:?}", a.strategy),
+                        a.explanation.clone(),
+                    )
+                },
+            );
+            AnchorDesc {
+                src: src.as_str().to_owned(),
+                tgt: tgt.as_str().to_owned(),
+                confidence,
+                strategy,
+                explanation,
+            }
+        })
+        .collect();
+
+    descs.sort_by(|a, b| {
+        b.confidence
+            .total_cmp(&a.confidence)
+            .then_with(|| a.src.cmp(&b.src))
+            .then_with(|| a.tgt.cmp(&b.tgt))
+    });
+
+    rmp_serde::to_vec_named(&DiscoverAnchorsResponse { anchors: descs })
         .map_err(|e| WasmError::SerializationFailed(e.to_string()))
 }
 
