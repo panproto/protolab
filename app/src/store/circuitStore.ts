@@ -347,6 +347,11 @@ interface CircuitState {
    * re-run candidate generation so the CSP gets the pinning it needs.
    */
   promoteAnchorToHint(src: string, tgt: string): void;
+  /**
+   * Remove a previously-pinned anchor hint for `src` and re-run
+   * candidate generation. Symmetric with `promoteAnchorToHint`.
+   */
+  removeAnchorHint(src: string): void;
   setInputData(json: string): void;
   runEvaluation(): void;
   applyModifiedOutput(json: string): void;
@@ -1021,6 +1026,18 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
   promoteAnchorToHint(src, tgt) {
     const current = get().autoLensHints;
     const nextAnchors = { ...(current.anchors ?? {}), [src]: tgt };
+    set({ autoLensHints: { ...current, anchors: nextAnchors } });
+    get().generateCandidates();
+  },
+
+  removeAnchorHint(src) {
+    const current = get().autoLensHints;
+    const existingAnchors = current.anchors ?? {};
+    if (!(src in existingAnchors)) return;
+    const nextAnchors: Record<string, string> = {};
+    for (const [k, v] of Object.entries(existingAnchors)) {
+      if (k !== src) nextAnchors[k] = v;
+    }
     set({ autoLensHints: { ...current, anchors: nextAnchors } });
     get().generateCandidates();
   },

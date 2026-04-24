@@ -53,6 +53,7 @@ export function CanvasEmptyState() {
     (s) => s.autoLensHints.anchors ?? EMPTY_ANCHORS,
   );
   const promoteAnchorToHint = useCircuitStore((s) => s.promoteAnchorToHint);
+  const removeAnchorHint = useCircuitStore((s) => s.removeAnchorHint);
   const autoLensError = useCircuitStore((s) => s.autoLensError);
 
   if (!shouldShow) return null;
@@ -124,7 +125,10 @@ export function CanvasEmptyState() {
         )}
 
         {Object.keys(pinnedAnchors).length > 0 && (
-          <PinnedAnchors anchors={pinnedAnchors} />
+          <PinnedAnchors
+            anchors={pinnedAnchors}
+            onRemove={(src) => removeAnchorHint(src)}
+          />
         )}
 
         <div
@@ -223,13 +227,22 @@ function AnchorChips({
       >
         Discovered correspondences
       </div>
+      {/* One parent grid so every row shares the same column template —
+          per-row grids drift because `auto` columns size independently,
+          which left the arrow and strategy tag at different x positions
+          row-to-row. Each button collapses via `display: contents` so
+          its four children land directly in the parent grid cells. */}
       <div
         style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: 4,
+          display: "grid",
+          gridTemplateColumns: "minmax(0, 1fr) auto minmax(0, 1fr) auto",
+          alignItems: "center",
+          columnGap: 10,
+          rowGap: 4,
           maxHeight: 180,
           overflowY: "auto",
+          fontFamily:
+            'ui-monospace, "JetBrains Mono", "Berkeley Mono", Menlo, monospace',
         }}
       >
         {anchors.slice(0, 8).map((a) => (
@@ -239,54 +252,77 @@ function AnchorChips({
             title={`Promote to hint (strategy: ${a.strategy}, confidence: ${a.confidence.toFixed(2)})`}
             data-testid={`canvas-empty-anchor-${a.src}`}
             style={{
-              display: "grid",
-              gridTemplateColumns: "1fr auto 1fr auto",
-              gap: 8,
-              alignItems: "center",
-              padding: "6px 10px",
-              background: CHIP_BG,
-              border: `1px solid ${CHIP_BORDER}`,
-              borderRadius: 5,
-              color: "#e4e6ea",
-              fontSize: 11,
-              fontFamily:
-                'ui-monospace, "JetBrains Mono", "Berkeley Mono", Menlo, monospace',
-              textAlign: "left",
+              // `display: contents` makes the button disappear from
+              // the layout tree — its children (the four spans
+              // below) become direct grid items of the parent, so
+              // they share the parent's column template instead of
+              // forming their own per-row grid.
+              display: "contents",
               cursor: "pointer",
-              transition: "background 80ms ease",
             }}
-            onMouseEnter={(e) =>
-              (e.currentTarget.style.background = CHIP_HOVER)
-            }
-            onMouseLeave={(e) => (e.currentTarget.style.background = CHIP_BG)}
           >
             <span
               style={{
+                gridColumn: 1,
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
                 color: ACCENT_GREEN,
+                padding: "6px 0 6px 10px",
+                background: CHIP_BG,
+                border: `1px solid ${CHIP_BORDER}`,
+                borderRight: "none",
+                borderRadius: "5px 0 0 5px",
+                fontSize: 11,
+                textAlign: "left",
               }}
             >
               {terminalSegment(a.src)}
             </span>
-            <span style={{ color: "#555" }}>→</span>
             <span
               style={{
+                gridColumn: 2,
+                color: "#555",
+                padding: "6px 0",
+                background: CHIP_BG,
+                borderTop: `1px solid ${CHIP_BORDER}`,
+                borderBottom: `1px solid ${CHIP_BORDER}`,
+                fontSize: 11,
+              }}
+            >
+              →
+            </span>
+            <span
+              style={{
+                gridColumn: 3,
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
                 color: ACCENT_BLUE,
+                padding: "6px 0",
+                background: CHIP_BG,
+                borderTop: `1px solid ${CHIP_BORDER}`,
+                borderBottom: `1px solid ${CHIP_BORDER}`,
+                fontSize: 11,
+                textAlign: "left",
               }}
             >
               {terminalSegment(a.tgt)}
             </span>
             <span
               style={{
+                gridColumn: 4,
                 fontSize: 9,
                 color: "#777",
                 letterSpacing: "0.04em",
                 textTransform: "uppercase",
+                padding: "6px 10px 6px 0",
+                background: CHIP_BG,
+                border: `1px solid ${CHIP_BORDER}`,
+                borderLeft: "none",
+                borderRadius: "0 5px 5px 0",
+                textAlign: "right",
+                whiteSpace: "nowrap",
               }}
             >
               {strategyLabel(a.strategy)}
@@ -309,7 +345,13 @@ function AnchorChips({
   );
 }
 
-function PinnedAnchors({ anchors }: { anchors: Record<string, string> }) {
+function PinnedAnchors({
+  anchors,
+  onRemove,
+}: {
+  anchors: Record<string, string>;
+  onRemove: (src: string) => void;
+}) {
   const entries = Object.entries(anchors);
   return (
     <div style={{ marginBottom: 12 }}>
@@ -330,17 +372,55 @@ function PinnedAnchors({ anchors }: { anchors: Record<string, string> }) {
           <div
             key={src}
             style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
               fontSize: 11,
               fontFamily:
                 'ui-monospace, "JetBrains Mono", "Berkeley Mono", Menlo, monospace',
               color: "#bbb",
-              padding: "3px 8px",
-              background: "transparent",
+              padding: "3px 0 3px 8px",
               borderLeft: `2px solid ${ACCENT_GREEN}`,
             }}
           >
-            {terminalSegment(src)}{" "}
-            <span style={{ color: "#555" }}>→</span> {terminalSegment(tgt)}
+            <span style={{ flex: 1 }}>
+              {terminalSegment(src)}{" "}
+              <span style={{ color: "#555" }}>→</span>{" "}
+              {terminalSegment(tgt)}
+            </span>
+            <button
+              onClick={() => onRemove(src)}
+              title="Unpin this hint (it returns to the discovered list)."
+              aria-label={`Unpin ${src} → ${tgt}`}
+              data-testid={`canvas-empty-unpin-${src}`}
+              style={{
+                width: 18,
+                height: 18,
+                flexShrink: 0,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                background: "transparent",
+                border: "none",
+                borderRadius: 3,
+                color: "#777",
+                fontSize: 12,
+                lineHeight: 1,
+                cursor: "pointer",
+                padding: 0,
+                transition: "color 80ms ease, background 80ms ease",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = "#e4e6ea";
+                e.currentTarget.style.background = CHIP_HOVER;
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = "#777";
+                e.currentTarget.style.background = "transparent";
+              }}
+            >
+              ✕
+            </button>
           </div>
         ))}
       </div>
