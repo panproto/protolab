@@ -61,6 +61,9 @@ pub fn circuit_to_lens_document(
         rules: None,
         compose: None,
         auto: None,
+        from_diff: None,
+        symmetric: None,
+        directed_equations: None,
         passthrough: None,
         invertible: None,
         extensions: Default::default(),
@@ -79,7 +82,7 @@ pub fn lens_document_to_circuit(doc: &LensDocument) -> Result<Schema, CircuitErr
     let steps = doc
         .steps
         .as_ref()
-        .ok_or_else(|| CircuitError::Conversion("LensDocument has no steps body".into()))?;
+        .ok_or_else(|| CircuitError::Conversion(describe_missing_steps(doc)))?;
 
     let mut builder = CircuitBuilder::new();
     let mut prev_out_port: Option<String> = None;
@@ -122,6 +125,156 @@ pub fn lens_document_to_circuit(doc: &LensDocument) -> Result<Schema, CircuitErr
     }
 
     Ok(builder.build())
+}
+
+/// Parts of a `LensDocument` the circuit has no representation for.
+///
+/// The canvas is a pipeline of components, so it carries a `steps` body and
+/// nothing else. Everything a document can hold *alongside* its steps —
+/// directed equations, the rules-variant metadata, extensions — is dropped
+/// on the way in, and exporting the circuit will not reproduce it. Silently
+/// losing a modifier on a round-trip is worse than refusing the document,
+/// because the user has no way to see it happened; naming what went missing
+/// lets them decide whether the round-trip is safe for their lens.
+///
+/// Each entry is a full sentence naming the part and what its loss means.
+#[must_use]
+pub fn unrepresentable_parts(doc: &LensDocument) -> Vec<String> {
+    let mut out = Vec::new();
+
+    // A step with no component to draw it lands on the canvas as an inert
+    // `unknown` node carrying no params, and `step_metadata` hands it the
+    // `lens` wire colour, which is a claim about its optic class that
+    // nothing checked. It then exports as `# unsupported step`. Naming the
+    // steps this happened to is the only signal the user gets that the
+    // circuit means less than the document did.
+    if let Some(steps) = &doc.steps {
+        let unmapped: Vec<String> = steps
+            .iter()
+            .enumerate()
+            .filter(|(_, step)| step_metadata(step).0 == "unknown")
+            .map(|(i, step)| format!("{} (step {})", step_kind_name(step), i + 1))
+            .collect();
+        if !unmapped.is_empty() {
+            out.push(format!(
+                "Step kind(s) the canvas has no component for: {}. They are \
+                 drawn as inert `unknown` nodes, carry none of their \
+                 parameters, and will not survive an export.",
+                unmapped.join(", ")
+            ));
+        }
+    }
+    if let Some(eqs) = &doc.directed_equations {
+        if !eqs.is_empty() {
+            out.push(format!(
+                "{} directed equation(s): oriented rewrites appended to the \
+                 chain. The canvas has no component for one, so they are not \
+                 shown and will not be exported.",
+                eqs.len()
+            ));
+        }
+    }
+    if doc.passthrough.is_some() {
+        out.push(
+            "A `passthrough` policy: behaviour for features no rule matched. \
+             It belongs to the rules body and has no effect on a step \
+             pipeline, so it is not carried."
+                .to_owned(),
+        );
+    }
+    if doc.invertible.is_some() {
+        out.push(
+            "An `invertible` flag: a rules-variant declaration. The canvas \
+             derives invertibility from the components themselves, so the \
+             declared value is not carried."
+                .to_owned(),
+        );
+    }
+    if !doc.extensions.is_empty() {
+        let mut keys: Vec<&str> = doc.extensions.keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        out.push(format!(
+            "Extension key(s) {}: fields outside the lens DSL's own schema. \
+             They are not interpreted and will not be exported.",
+            keys.join(", ")
+        ));
+    }
+    out
+}
+
+/// The wire tag of a `Step`, for naming one in a message.
+///
+/// Read off the serialized form rather than matched variant by variant, so
+/// a step kind added upstream is named correctly here without this function
+/// having to learn about it — which is the case that matters, since the
+/// reason to name a step at all is that protolab does not know it.
+fn step_kind_name(step: &Step) -> String {
+    serde_json::to_value(step)
+        .ok()
+        .and_then(|v| v.as_object().and_then(|o| o.keys().next().cloned()))
+        .unwrap_or_else(|| "unrecognized".to_owned())
+}
+
+/// [`unrepresentable_parts`] for a document still in its JSON form.
+///
+/// Keeps the lens-DSL types out of callers that only need the report, so
+/// the WASM crate does not take a dependency on `panproto-lens-dsl` for
+/// one struct. A document that does not parse has nothing to report; the
+/// import itself will fail with the parse error.
+#[must_use]
+pub fn unrepresentable_parts_json(json_source: &str) -> Vec<String> {
+    serde_json::from_str::<LensDocument>(json_source)
+        .map(|doc| unrepresentable_parts(&doc))
+        .unwrap_or_default()
+}
+
+/// Explain why a document has no canvas representation.
+///
+/// A `LensDocument` carries exactly one body, and the canvas is a pipeline
+/// of components, so `steps` is the only one it can draw. Saying only
+/// "no steps body" leaves a user holding a perfectly valid lens with no
+/// indication of which body it has or whether protolab could ever open it.
+/// Naming the body — and, for the two that are chains under another
+/// spelling, saying what would have to happen — is the difference between a
+/// dead end and a next step.
+fn describe_missing_steps(doc: &LensDocument) -> String {
+    let (body, note) = if doc.from_diff.is_some() {
+        (
+            "from_diff",
+            "It derives its chain from the structural difference between the \
+             source and target schemas, which needs both schemas to compile. \
+             Assign them and use auto-generate, which runs the same derivation \
+             and installs the result as editable components.",
+        )
+    } else if doc.symmetric.is_some() {
+        (
+            "symmetric",
+            "It holds two pipelines meeting at a shared middle. The canvas \
+             draws a single forward chain, so there is no arrangement of \
+             components that means the same thing.",
+        )
+    } else if doc.compose.is_some() {
+        (
+            "compose",
+            "It references other lenses by name rather than carrying steps of \
+             its own. Import the lenses it names and place them end to end.",
+        )
+    } else if doc.rules.is_some() {
+        (
+            "rules",
+            "It rewrites by pattern match rather than by a fixed sequence, and \
+             the canvas has no component for a rule.",
+        )
+    } else {
+        return "LensDocument has no body: expected one of steps, from_diff, \
+                symmetric, compose, or rules."
+            .to_owned();
+    };
+    format!(
+        "This lens has a `{body}` body, which the canvas cannot draw — it \
+         represents a lens as a pipeline of components, which is the `steps` \
+         body. {note}"
+    )
 }
 
 /// Extract the circuit-component params (as string key/value pairs) from a
@@ -1007,14 +1160,15 @@ mod tests {
 
     #[test]
     fn import_lens_json_rejects_missing_steps_body() {
-        // Valid JSON, valid LensDocument fields, but no `steps`.
+        // Valid JSON, valid LensDocument fields, but no body at all.
         let src = r#"{"id":"x","source":"a","target":"b"}"#;
         let err = import_lens_json(src);
         match err {
             Err(CircuitError::Conversion(msg)) => {
                 assert!(
-                    msg.contains("no steps body"),
-                    "expected error to mention 'no steps body'; got: {msg}"
+                    msg.contains("no body") && msg.contains("steps"),
+                    "expected the error to say the document has no body and \
+                     name the ones it could have; got: {msg}"
                 );
             }
             Err(other) => panic!("expected Conversion error; got {other:?}"),
@@ -1414,5 +1568,172 @@ mod tests {
             .map(|(_, v)| v.clone())
             .unwrap();
         assert_eq!(default, "42");
+    }
+}
+
+#[cfg(test)]
+mod body_reporting_tests {
+    use super::*;
+
+    fn err_for(src: &str) -> String {
+        match import_lens_json(src) {
+            Err(CircuitError::Conversion(msg)) => msg,
+            other => panic!("expected a conversion error; got {other:?}"),
+        }
+    }
+
+    // A user holding a valid lens deserves to know which body it has and
+    // whether the canvas could ever open it, not just that `steps` is absent.
+    #[test]
+    fn a_symmetric_body_is_named_and_explained() {
+        let msg = err_for(
+            r#"{"id":"x","source":"a","target":"b",
+                "symmetric":{"left":[],"right":[]}}"#,
+        );
+        assert!(msg.contains("symmetric"), "must name the body; got {msg}");
+        assert!(
+            msg.contains("two pipelines"),
+            "must say why a single forward chain cannot mean the same thing; got {msg}"
+        );
+    }
+
+    #[test]
+    fn a_from_diff_body_points_at_auto_generate() {
+        let msg = err_for(
+            r#"{"id":"x","source":"a","target":"b","from_diff":{}}"#,
+        );
+        assert!(msg.contains("from_diff"), "must name the body; got {msg}");
+        assert!(
+            msg.contains("auto-generate"),
+            "from_diff is the derivation auto-generate runs, so the error \
+             should send the user there; got {msg}"
+        );
+    }
+
+    #[test]
+    fn a_compose_body_says_to_import_what_it_names() {
+        let msg = err_for(
+            r#"{"id":"x","source":"a","target":"b",
+                "compose":{"mode":"vertical","lenses":[{"ref":"p"},{"ref":"q"}]}}"#,
+        );
+        assert!(msg.contains("compose"), "must name the body; got {msg}");
+        assert!(msg.contains("Import"), "must say what to do; got {msg}");
+    }
+
+    // Losing a modifier on a round-trip is worse than refusing the document,
+    // because nothing tells the user it happened.
+    #[test]
+    fn directed_equations_are_reported_as_dropped() {
+        let dropped = unrepresentable_parts_json(
+            r#"{"id":"x","source":"a","target":"b","steps":[],
+                "directed_equations":[
+                  {"name":"e","lhs":"f","rhs":"g","impl":"x"}
+                ]}"#,
+        );
+        assert_eq!(dropped.len(), 1, "got {dropped:?}");
+        assert!(
+            dropped[0].contains("directed equation"),
+            "must name what was lost; got {dropped:?}"
+        );
+        assert!(
+            dropped[0].contains("not be exported"),
+            "must say the loss survives an export; got {dropped:?}"
+        );
+    }
+
+    #[test]
+    fn extensions_are_reported_with_their_keys() {
+        let dropped = unrepresentable_parts_json(
+            r#"{"id":"x","source":"a","target":"b","steps":[],
+                "extensions":{"zeta":1,"alpha":2}}"#,
+        );
+        assert_eq!(dropped.len(), 1, "got {dropped:?}");
+        // Sorted, so the message is the same on every run.
+        assert!(
+            dropped[0].contains("alpha, zeta"),
+            "must name the keys in a stable order; got {dropped:?}"
+        );
+    }
+
+    #[test]
+    fn a_plain_steps_document_drops_nothing() {
+        let dropped = unrepresentable_parts_json(
+            r#"{"id":"x","source":"a","target":"b","steps":[]}"#,
+        );
+        assert!(dropped.is_empty(), "got {dropped:?}");
+    }
+
+    #[test]
+    fn an_empty_directed_equations_list_is_not_reported() {
+        // Present but empty means nothing was lost; reporting it would be
+        // a warning the user cannot act on.
+        let dropped = unrepresentable_parts_json(
+            r#"{"id":"x","source":"a","target":"b","steps":[],
+                "directed_equations":[]}"#,
+        );
+        assert!(dropped.is_empty(), "got {dropped:?}");
+    }
+
+    #[test]
+    fn a_malformed_document_reports_nothing() {
+        // The import itself fails with the parse error; a second, vaguer
+        // complaint here would only obscure it.
+        assert!(unrepresentable_parts_json("{ not valid").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod unmapped_step_tests {
+    use super::*;
+
+    // `Pullback`, `MergeSorts` and `DropEquation` have no component. They
+    // used to import as inert `unknown` nodes wearing the `lens` wire
+    // colour — a claim about their optic class that nothing established —
+    // and export as `# unsupported step`, with nothing said either way.
+    #[test]
+    fn an_unmapped_step_kind_is_named() {
+        let dropped = unrepresentable_parts_json(
+            r#"{"id":"x","source":"a","target":"b","steps":[
+                 {"merge_sorts":{"sort_a":"p","sort_b":"q","merged":"r","expr":"e"}}
+               ]}"#,
+        );
+        assert_eq!(dropped.len(), 1, "got {dropped:?}");
+        assert!(
+            dropped[0].contains("merge_sorts"),
+            "must name the step kind as the document spells it; got {dropped:?}"
+        );
+        assert!(
+            dropped[0].contains("step 1"),
+            "must say which step, so it can be found in a long document; got {dropped:?}"
+        );
+        assert!(
+            dropped[0].contains("not survive an export"),
+            "must say the loss persists through a round-trip; got {dropped:?}"
+        );
+    }
+
+    #[test]
+    fn mapped_steps_are_not_reported() {
+        let dropped = unrepresentable_parts_json(
+            r#"{"id":"x","source":"a","target":"b","steps":[
+                 {"rename_field":{"old":"a","new":"b"}}
+               ]}"#,
+        );
+        assert!(dropped.is_empty(), "got {dropped:?}");
+    }
+
+    #[test]
+    fn each_unmapped_step_is_listed_with_its_position() {
+        let dropped = unrepresentable_parts_json(
+            r#"{"id":"x","source":"a","target":"b","steps":[
+                 {"rename_field":{"old":"a","new":"b"}},
+                 {"merge_sorts":{"sort_a":"p","sort_b":"q","merged":"r","expr":"e"}}
+               ]}"#,
+        );
+        assert_eq!(dropped.len(), 1, "got {dropped:?}");
+        assert!(
+            dropped[0].contains("step 2"),
+            "position must count the mapped step ahead of it; got {dropped:?}"
+        );
     }
 }
