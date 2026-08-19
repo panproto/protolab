@@ -394,7 +394,6 @@ fn rewrite_into_source_frame(
     }
 }
 
-
 /// Per-component expression ops in topo order. Non-expression components
 /// contribute an empty list.
 fn build_per_component_ops(

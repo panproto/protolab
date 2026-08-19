@@ -1748,9 +1748,7 @@ fn discover_anchors_inner(
     // relative tolerance rather than an absolute floor is the decision
     // rule, because a mean over six families never clears the floor on the
     // strength of one family alone.
-    use panproto_mig::align::evidence::{
-        AggregationPolicy, Cardinality, RowFilter, aggregate,
-    };
+    use panproto_mig::align::evidence::{AggregationPolicy, Cardinality, RowFilter, aggregate};
     let resolved = aggregate(&raw_anchors, AggregationPolicy::StrictPriority)
         .select(Cardinality::Strict, RowFilter::relative_only())
         .to_map();
@@ -5570,7 +5568,10 @@ mod tests {
         let s = build_user_schema();
         let report = span_of(&s, &s);
         for p in &report.pairs {
-            assert!(!p.src.is_empty() && !p.tgt.is_empty(), "empty side in a pair");
+            assert!(
+                !p.src.is_empty() && !p.tgt.is_empty(),
+                "empty side in a pair"
+            );
         }
     }
 
@@ -5582,9 +5583,16 @@ mod tests {
         let first = span_of(&s, &s);
         let second = span_of(&s, &s);
         let key = |r: &SpanReportMirror| {
-            r.pairs.iter().map(|p| format!("{}>{}", p.src, p.tgt)).collect::<Vec<_>>()
+            r.pairs
+                .iter()
+                .map(|p| format!("{}>{}", p.src, p.tgt))
+                .collect::<Vec<_>>()
         };
-        assert_eq!(key(&first), key(&second), "pair order must be deterministic");
+        assert_eq!(
+            key(&first),
+            key(&second),
+            "pair order must be deterministic"
+        );
         // Field-wise by (src, tgt) — not by the formatted `src>tgt` string,
         // whose separator sorts differently from a field boundary.
         let ordered: Vec<(&str, &str)> = first
@@ -5617,7 +5625,11 @@ mod tests {
             t.between.clear();
             t.vertices.insert(
                 Name::from("zzz_unrelated"),
-                Vertex { id: "zzz_unrelated".into(), kind: "object".into(), nsid: None },
+                Vertex {
+                    id: "zzz_unrelated".into(),
+                    kind: "object".into(),
+                    nsid: None,
+                },
             );
             t.entries = vec![Name::from("zzz_unrelated")];
             t

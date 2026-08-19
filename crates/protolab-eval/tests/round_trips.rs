@@ -1131,8 +1131,16 @@ fn chained_renames_of_one_field_all_apply() {
     // a → b → c. The second rename used to be a no-op, yielding `b`.
     let source = flat_schema("user", &[("a", "string")]);
     let circuit = build_chain(&[
-        ("r1", "rename_field", vec![("old_name", "a"), ("new_name", "b")]),
-        ("r2", "rename_field", vec![("old_name", "b"), ("new_name", "c")]),
+        (
+            "r1",
+            "rename_field",
+            vec![("old_name", "a"), ("new_name", "b")],
+        ),
+        (
+            "r2",
+            "rename_field",
+            vec![("old_name", "b"), ("new_name", "c")],
+        ),
     ]);
     let out = run_forward(&circuit, &source, r#"{"a": "X"}"#);
     assert_eq!(
@@ -1153,14 +1161,29 @@ fn a_field_swap_via_a_temporary_exchanges_both_values() {
     // rename now resolves its vertex from the schema as of that step.
     let source = flat_schema("user", &[("first", "string"), ("last", "string")]);
     let circuit = build_chain(&[
-        ("r1", "rename_field", vec![("old_name", "first"), ("new_name", "tmp")]),
-        ("r2", "rename_field", vec![("old_name", "last"), ("new_name", "first")]),
-        ("r3", "rename_field", vec![("old_name", "tmp"), ("new_name", "last")]),
+        (
+            "r1",
+            "rename_field",
+            vec![("old_name", "first"), ("new_name", "tmp")],
+        ),
+        (
+            "r2",
+            "rename_field",
+            vec![("old_name", "last"), ("new_name", "first")],
+        ),
+        (
+            "r3",
+            "rename_field",
+            vec![("old_name", "tmp"), ("new_name", "last")],
+        ),
     ]);
     let out = run_forward(&circuit, &source, r#"{"first": "Ada", "last": "Lovelace"}"#);
     assert_eq!(out["first"], serde_json::json!("Lovelace"), "got {out}");
     assert_eq!(out["last"], serde_json::json!("Ada"), "got {out}");
-    assert!(out.get("tmp").is_none(), "the temporary must not survive; got {out}");
+    assert!(
+        out.get("tmp").is_none(),
+        "the temporary must not survive; got {out}"
+    );
 }
 
 #[test]
@@ -1171,9 +1194,21 @@ fn compute_field_after_a_swap_reads_the_post_swap_name() {
     // the swap and computing over the wrong field.
     let source = flat_schema("user", &[("first", "string"), ("last", "string")]);
     let circuit = build_chain(&[
-        ("r1", "rename_field", vec![("old_name", "first"), ("new_name", "tmp")]),
-        ("r2", "rename_field", vec![("old_name", "last"), ("new_name", "first")]),
-        ("r3", "rename_field", vec![("old_name", "tmp"), ("new_name", "last")]),
+        (
+            "r1",
+            "rename_field",
+            vec![("old_name", "first"), ("new_name", "tmp")],
+        ),
+        (
+            "r2",
+            "rename_field",
+            vec![("old_name", "last"), ("new_name", "first")],
+        ),
+        (
+            "r3",
+            "rename_field",
+            vec![("old_name", "tmp"), ("new_name", "last")],
+        ),
         (
             "compute",
             "compute_field",
@@ -1194,11 +1229,21 @@ fn dropping_a_renamed_field_removes_it() {
     // a field an earlier component renamed silently kept it.
     let source = flat_schema("user", &[("a", "string"), ("keep", "string")]);
     let circuit = build_chain(&[
-        ("r1", "rename_field", vec![("old_name", "a"), ("new_name", "b")]),
+        (
+            "r1",
+            "rename_field",
+            vec![("old_name", "a"), ("new_name", "b")],
+        ),
         ("d1", "drop_field", vec![("field_name", "b")]),
     ]);
     let out = run_forward(&circuit, &source, r#"{"a": "X", "keep": "Y"}"#);
-    assert!(out.get("b").is_none(), "renamed field must be dropped; got {out}");
-    assert!(out.get("a").is_none(), "original name must not reappear; got {out}");
+    assert!(
+        out.get("b").is_none(),
+        "renamed field must be dropped; got {out}"
+    );
+    assert!(
+        out.get("a").is_none(),
+        "original name must not reappear; got {out}"
+    );
     assert_eq!(out["keep"], serde_json::json!("Y"), "got {out}");
 }

@@ -362,12 +362,12 @@ impl FieldVertexIndex {
     /// Read the fields reachable from `parent` in `schema`.
     fn from_schema(schema: Option<&Schema>, parent: &Name) -> Self {
         let mut by_field = HashMap::new();
-        if let Some(schema) = schema {
-            if let Some(edges) = schema.outgoing.get(parent) {
-                for edge in edges {
-                    if let Some(name) = &edge.name {
-                        by_field.insert(name.to_string(), edge.tgt.clone());
-                    }
+        if let Some(schema) = schema
+            && let Some(edges) = schema.outgoing.get(parent)
+        {
+            for edge in edges {
+                if let Some(name) = &edge.name {
+                    by_field.insert(name.to_string(), edge.tgt.clone());
                 }
             }
         }

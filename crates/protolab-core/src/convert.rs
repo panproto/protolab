@@ -164,15 +164,15 @@ pub fn unrepresentable_parts(doc: &LensDocument) -> Vec<String> {
             ));
         }
     }
-    if let Some(eqs) = &doc.directed_equations {
-        if !eqs.is_empty() {
-            out.push(format!(
-                "{} directed equation(s): oriented rewrites appended to the \
-                 chain. The canvas has no component for one, so they are not \
-                 shown and will not be exported.",
-                eqs.len()
-            ));
-        }
+    if let Some(eqs) = &doc.directed_equations
+        && !eqs.is_empty()
+    {
+        out.push(format!(
+            "{} directed equation(s): oriented rewrites appended to the \
+             chain. The canvas has no component for one, so they are not \
+             shown and will not be exported.",
+            eqs.len()
+        ));
     }
     if doc.passthrough.is_some() {
         out.push(
@@ -1599,9 +1599,7 @@ mod body_reporting_tests {
 
     #[test]
     fn a_from_diff_body_points_at_auto_generate() {
-        let msg = err_for(
-            r#"{"id":"x","source":"a","target":"b","from_diff":{}}"#,
-        );
+        let msg = err_for(r#"{"id":"x","source":"a","target":"b","from_diff":{}}"#);
         assert!(msg.contains("from_diff"), "must name the body; got {msg}");
         assert!(
             msg.contains("auto-generate"),
@@ -1657,9 +1655,8 @@ mod body_reporting_tests {
 
     #[test]
     fn a_plain_steps_document_drops_nothing() {
-        let dropped = unrepresentable_parts_json(
-            r#"{"id":"x","source":"a","target":"b","steps":[]}"#,
-        );
+        let dropped =
+            unrepresentable_parts_json(r#"{"id":"x","source":"a","target":"b","steps":[]}"#);
         assert!(dropped.is_empty(), "got {dropped:?}");
     }
 

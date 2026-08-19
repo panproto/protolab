@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.8.0] — 2026-07-27
+## [0.8.0] — 2026-08-19
 
 ### Added
 
@@ -69,7 +69,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   strength of one family alone.
 - **`HintParts` lost `name_similarity_threshold`**; the hint path no
   longer sets it.
-
 - **The empty state says what the schemas share, measured.** When
   auto-generation found no lens, the canvas asserted that the field
   names "don't overlap enough for the solver to guess" — a claim about
