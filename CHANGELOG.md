@@ -7,6 +7,221 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-07-27
+
+### Added
+
+- **Multi-account atproto sign-in.** protolab can hold several
+  atproto sessions at once, keyed by DID, with an account badge in
+  both the edit and presentation toolbars naming the DID a publish
+  would write to. Signed out it is a labelled "Sign in" button;
+  signed in it collapses to the account's avatar alone, with the
+  handle and any other signed-in accounts one click away in the
+  panel. It appears in both bars because a bare visit lands in
+  presentation mode — an account control only in the edit toolbar is
+  unreachable for anyone who has not been told about Cmd+E. A lens is
+  shared infrastructure as often as a personal artifact, so the same
+  person may want to publish one under a personal DID and another
+  under an organization's. Tokens live in the OAuth library's
+  IndexedDB store; only display metadata is persisted, under a
+  `protolab.sessions.v1` key separate from canvas state, so clearing
+  a circuit cannot sign anyone out.
+- **Publishing lenses to a PDS.** A new Library panel writes the
+  canvas circuit as a `dev.panproto.schema.lens` record, plus a
+  `dev.panproto.schema.schema` record for each endpoint it
+  references — a lens record requires `sourceSchema` and
+  `targetSchema` as at-uris, so publishing a lens means publishing
+  the schemas it points at. Both carry an `application/x-msgpack`
+  blob. Schemas are content-addressed, so republishing an unchanged
+  one reuses the existing record instead of duplicating it.
+- **Browsing any repo's lens library.** The Library panel's Browse
+  tab lists a DID's published lenses, labelled by the protocols at
+  each end (`atproto → openapi`) rather than by raw at-uri, with
+  round-trip class and law-verification status. Listing records is an
+  unauthenticated public read, so this works signed out and for
+  anyone's DID.
+- **Content addressing at the WASM boundary.** New exports
+  `schema_object_hash`, `schema_msgpack`, `lens_msgpack`, and
+  `blake3_hex`. A schema's `objectHash` is panproto's own object id
+  (`panproto_vcs::hash::hash_schema` — blake3 over the canonical
+  MessagePack form), not an ad-hoc digest, so a published record
+  lines up with the same schema held in a panproto repo or registry.
+  A lens is addressed by blake3 over the bytes it ships, since a
+  `LensDocument` has no canonical form in `panproto-vcs`.
+
+### Changed
+
+- **panproto 0.38.0 → 0.71.0.** `LensDocument` gained `from_diff`,
+  `symmetric`, and `directed_equations`; protolab emits a `steps`
+  body and sets each to `None`.
+- **Anchor discovery reads the aggregated evidence table.** panproto
+  0.71 replaced `align::resolve_anchors`, a per-source argmax over raw
+  confidences, with aggregate-then-select: the whole pool reduces to
+  one score per `(source, target)` — a provenance ceiling, a priority
+  band, a `max` within each of six evidence families, then a
+  fixed-arity mean — and the choice is made off that table.
+  `discover_anchors` now uses `StrictPriority` aggregation with
+  `Cardinality::Strict` and `RowFilter::relative_only`, the same
+  combination the search itself seeds on, so the anchors protolab
+  displays remain the ones the morphism search actually tried. The
+  relative tolerance rather than an absolute floor is the decision
+  rule, because a mean over six families never clears the floor on the
+  strength of one family alone.
+- **`HintParts` lost `name_similarity_threshold`**; the hint path no
+  longer sets it.
+
+- **The empty state says what the schemas share, measured.** When
+  auto-generation found no lens, the canvas asserted that the field
+  names "don't overlap enough for the solver to guess" — a claim about
+  the schemas that nothing had established. "Is there a lens worth
+  installing" and "what is the largest part of the source that maps"
+  are different questions, and the second always has an answer:
+  panproto's span search never refuses, returning an empty apex where
+  two schemas genuinely share nothing. A new `schema_span` WASM export
+  runs it, and the overlay now reports the covered fraction and lists
+  the correspondences, which is what a user needs to decide whether to
+  map by hand. Deliberately no score: `SchemaSpan::quality` is
+  documented as a ranking signal among spans over one source schema
+  with no absolute reading, so showing it as a number comparable across
+  schema pairs would invent a meaning it does not have. `apex_coverage`
+  is `|apex| / |source|`, which does mean what it looks like. An
+  unproven optimum says so rather than reading as a verdict, and the
+  pairs are sorted, since `apex.vertices` is a `HashMap` and the list
+  would otherwise reshuffle on every search.
+- **Importing a lens says what the canvas could not carry.** A
+  `LensDocument` holds one body, and the canvas draws a pipeline of
+  components, so `steps` is the only one it can represent. A document
+  with any other body used to be refused with "LensDocument has no
+  steps body" — true, and useless to someone holding a valid lens. The
+  error now names the body and says what follows from it: `from_diff`
+  derives its chain from the source/target difference, which is what
+  auto-generate runs; `symmetric` holds two pipelines meeting at a
+  shared middle, which no arrangement of components means; `compose`
+  references lenses by name, so import those and place them end to end.
+- **A lossy import is reported rather than silent.** A document whose
+  `steps` the canvas *can* draw may still carry directed equations,
+  rules-variant metadata (`passthrough`, `invertible`), or extension
+  keys, and those are dropped on the way in and absent from any
+  subsequent export. It may also carry a step kind protolab has no
+  component for — `pullback`, `merge_sorts`, `drop_equation` — which
+  landed as an inert `unknown` node holding none of its parameters and
+  wearing the `lens` wire colour, a claim about its optic class that
+  nothing had established. Import still succeeds; it now reports each
+  part it could not carry, naming unmapped steps by their position and
+  their spelling in the document. `import_lens_document` returns
+  `{handle, dropped}` in place of a bare handle.
+
+### Removed
+
+- **A stale claim about an upstream coverage floor.** A comment on the
+  candidate-install path asserted that every candidate reaching it had
+  cleared "the 0.15 threshold upstream". No such number exists in
+  panproto 0.71 — `auto_generate` compares the pinned and released
+  searches on the objective, quality first and coverage second, rather
+  than gating either on a threshold. protolab's own gate is
+  structural and unchanged: a candidate survives if the compiled
+  migration mapped anything at all.
+- **A false `iso` tag can no longer corrupt the source.** panproto
+  0.66 stopped `apply_expr` over a child scalar from writing its
+  result to a shadowing `extra_fields` entry on the parent — a field
+  the source never carried, which on the way back outranked the
+  child. A lying inverse (identity where `lower` belongs) previously
+  returned `ALICE` from an unmodified round-trip; the child node is
+  now authoritative and the round-trip recovers `Alice`. The tag is
+  still trusted and a lying one is still a defect in the lens; it is
+  no longer a destructive one.
+- **A failing expression now reports instead of silently doing
+  nothing.** panproto 0.57 made `apply_field_transforms` return
+  `FieldTransformFailed` rather than discarding an unevaluable
+  expression, on the grounds that a transform which ran and changed
+  nothing is indistinguishable from one that failed. A broken
+  `apply_expr` / `compute_field` now names its own failure on the
+  store's error channel — ``field transform on `name` failed to
+  evaluate: unbound variable: unknownVar`` — where it previously
+  rendered an unexplained no-op.
+
+### Fixed
+
+- **A completed sign-in is no longer discarded by the mode switch.**
+  atproto OAuth uses `response_mode=fragment`, so authorizing returns
+  the browser to `/#code=…&state=…`. `setMode` rebuilt the URL from
+  pathname and query alone, dropping the fragment — and it runs from
+  App's boot effect, before the OAuth client reads the callback. The
+  authorization request succeeded, the callback silently degraded into
+  an ordinary page load, and the user arrived back on a signed-out app
+  with an orphaned `state` entry in IndexedDB, an empty `session`
+  store, and no error anywhere to explain it. The fragment is now
+  preserved.
+- **A session is recorded before it is enriched.** `syncSessionToStore`
+  looked up handle, avatar, PDS, and scope and only then wrote to the
+  store, so a single throw anywhere in that chain — a rejected
+  `new Agent`, an unreachable AppView — left an authenticated user
+  reading as signed out while the OAuth library held a live session.
+  The session is now written on sight and patched with profile detail
+  as it arrives.
+- **The session probe is no longer skipped.** An earlier cut ran
+  `resumeSession` only when protolab's own localStorage mirror was
+  populated or the URL carried callback params. The authoritative
+  store is the OAuth library's IndexedDB, so a user whose mirror was
+  empty was never restored. The probe now runs on every mount, and is
+  memoized so the edit → presentation remount does not race two
+  `init()` calls for the same one-time authorization code.
+- **`compute_field` downstream of a `rename_field` resolves the
+  renamed key again.** protolab evaluates expression components
+  itself, against the post-`get` view where the rename has landed,
+  but also installs a copy of the transform on the compiled lens as a
+  complement side-channel for a direct `put`. panproto evaluates that
+  copy against the *source* fiber, where the renamed name does not
+  exist; before 0.57 it failed silently and protolab's own evaluation
+  supplied the right answer, so the upgrade turned a latent mismatch
+  into a hard error. `wire_data::rewrite_into_source_frame` now
+  substitutes the copy's free variables back through the upstream
+  renames, composing transitively (`a→b` then `b→c` resolves `c` to
+  `a`). The substitution is value-preserving because a rename moves a
+  value without changing it. The substitutions are staged through
+  temporary names and applied together, so a swap does not collapse
+  the way one-at-a-time rewriting would.
+
+  This began as a workaround for an upstream composition bug —
+  `compose` conjugated the vertex coordinate but not the field
+  coordinate (panproto#245), and 0.66's repair read a rename map that
+  `ProtolensChain::instantiate` left empty (panproto#251). Both are
+  fixed as of panproto 0.68, and verified here: composing two lenses
+  is functorial, and naming a field the first one took away is
+  rejected at compose time with `ComposeUnboundField`.
+
+  The rewrite stays regardless, because protolab never composes. A
+  circuit is flattened into a single `ProtolensChain`, instantiated
+  once, and every component's value transforms are installed onto that
+  one migration. Within a single migration all transforms are by
+  construction in its source frame, so there is no second frame for
+  `compose_field_transforms` to conjugate between and the upstream
+  repair cannot fire. Removing it against 0.68.0 makes
+  `compute_field_after_rename_uses_renamed_key` fail. Dropping it for
+  real means building a migration per component and composing them —
+  a restructuring of the evaluation pipeline, not a deletion.
+- **Chained renames of one field all apply.** A component names a
+  *field*; the combinator takes the *vertex* that field's edge points
+  at, and the two were assumed to line up as `{parent}.{field}`. That
+  holds for a freshly parsed schema and stops holding the moment a
+  chain renames anything, because `RenameEdgeName` moves the edge's
+  name and leaves the vertex id alone. A second component naming the
+  field by its new name computed a vertex that does not exist, and the
+  combinator silently did nothing: `a → b` followed by `b → c`
+  produced `b`, with no error, and a field swap could not be expressed
+  at all. `drop_field` resolved its vertex the same way, so dropping a
+  renamed field silently kept it. The mapping is now read off the
+  schema and re-keyed as the chain is built, which also stops the
+  naming convention from being load-bearing for schemas whose vertex
+  ids do not follow it.
+- **Component tests no longer die on `window.localStorage`.** Node 26
+  exposes a native `localStorage` global that stays `undefined`
+  without `--localstorage-file`, and under vitest's jsdom environment
+  `window === globalThis`, so that own-property shadowed the Storage
+  jsdom installs. Any component reading persisted state in a
+  `useState` initializer crashed during render. The test setup now
+  installs a spec-shaped in-memory Storage when one is missing.
+
 ## [0.7.0] — 2026-04-24
 
 ### Changed
