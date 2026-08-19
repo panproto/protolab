@@ -1055,11 +1055,19 @@ fn compute_field_with_missing_child_uses_null() {
 }
 
 #[test]
-// FIXED: `compute_field` expressions are now evaluated manually against
-// the view AFTER the chain (including any upstream `rename_field` steps)
-// has been applied by `panproto_lens::asymmetric::get`. The expression
-// env is built from the view's current arcs — which carry the renamed
-// edge names — so `lower(displayName)` resolves to the new key.
+// `compute_field` expressions are evaluated manually against the view
+// AFTER the chain (including any upstream `rename_field` steps) has been
+// applied by `panproto_lens::asymmetric::get`. The expression env is built
+// from the view's current arcs — which carry the renamed edge names — so
+// `lower(displayName)` resolves to the new key.
+//
+// The copy of the transform installed on the compiled lens (a complement
+// side-channel for direct `put`) is evaluated by panproto against the
+// source fiber instead, where `displayName` does not exist. Before
+// panproto 0.57 that copy failed silently; it now reports, so
+// `wire_data::rewrite_into_source_frame` rewrites its free variables back
+// into the source frame. See panproto#245 for the upstream composition
+// bug that makes the rewrite necessary.
 fn compute_field_after_rename_uses_renamed_key() {
     // rename(name → displayName) → compute_field(target=slug, expr=lower(displayName))
     // The compute_field expression must resolve `displayName` (the new
@@ -1107,4 +1115,90 @@ fn compute_field_with_inverse_is_iso() {
         OpticKind::Iso,
         "compute_field with inverse should be Iso"
     );
+}
+
+// ── Chained renames ─────────────────────────────────────────────────
+
+// A component names a *field*; the combinator takes the *vertex* that
+// field's edge points at. Those were assumed to line up as
+// `{parent}.{field}`, which stops holding as soon as a chain renames
+// anything: `RenameEdgeName` moves the edge's name and leaves the vertex
+// id alone. A second component naming the field by its new name computed a
+// vertex that does not exist, and the combinator silently did nothing.
+
+#[test]
+fn chained_renames_of_one_field_all_apply() {
+    // a → b → c. The second rename used to be a no-op, yielding `b`.
+    let source = flat_schema("user", &[("a", "string")]);
+    let circuit = build_chain(&[
+        ("r1", "rename_field", vec![("old_name", "a"), ("new_name", "b")]),
+        ("r2", "rename_field", vec![("old_name", "b"), ("new_name", "c")]),
+    ]);
+    let out = run_forward(&circuit, &source, r#"{"a": "X"}"#);
+    assert_eq!(
+        out["c"],
+        serde_json::json!("X"),
+        "both renames must apply, leaving the value under `c`; got {out}"
+    );
+    assert!(out.get("a").is_none(), "`a` must not survive; got {out}");
+    assert!(
+        out.get("b").is_none(),
+        "`b` is an intermediate name and must not survive; got {out}"
+    );
+}
+
+#[test]
+fn a_field_swap_via_a_temporary_exchanges_both_values() {
+    // first → tmp, last → first, tmp → last. Expressible only because a
+    // rename now resolves its vertex from the schema as of that step.
+    let source = flat_schema("user", &[("first", "string"), ("last", "string")]);
+    let circuit = build_chain(&[
+        ("r1", "rename_field", vec![("old_name", "first"), ("new_name", "tmp")]),
+        ("r2", "rename_field", vec![("old_name", "last"), ("new_name", "first")]),
+        ("r3", "rename_field", vec![("old_name", "tmp"), ("new_name", "last")]),
+    ]);
+    let out = run_forward(&circuit, &source, r#"{"first": "Ada", "last": "Lovelace"}"#);
+    assert_eq!(out["first"], serde_json::json!("Lovelace"), "got {out}");
+    assert_eq!(out["last"], serde_json::json!("Ada"), "got {out}");
+    assert!(out.get("tmp").is_none(), "the temporary must not survive; got {out}");
+}
+
+#[test]
+fn compute_field_after_a_swap_reads_the_post_swap_name() {
+    // The conjugation that walks an expression back into the source frame
+    // has to apply the renames simultaneously: one at a time, `first`
+    // rewrites to `last` and that `last` is then re-captured, collapsing
+    // the swap and computing over the wrong field.
+    let source = flat_schema("user", &[("first", "string"), ("last", "string")]);
+    let circuit = build_chain(&[
+        ("r1", "rename_field", vec![("old_name", "first"), ("new_name", "tmp")]),
+        ("r2", "rename_field", vec![("old_name", "last"), ("new_name", "first")]),
+        ("r3", "rename_field", vec![("old_name", "tmp"), ("new_name", "last")]),
+        (
+            "compute",
+            "compute_field",
+            vec![("target", "tag"), ("expr", "lower(first)")],
+        ),
+    ]);
+    let out = run_forward(&circuit, &source, r#"{"first": "Ada", "last": "Lovelace"}"#);
+    assert_eq!(
+        out["tag"],
+        serde_json::json!("lovelace"),
+        "compute_field must read the post-swap `first` (= original `last`); got {out}"
+    );
+}
+
+#[test]
+fn dropping_a_renamed_field_removes_it() {
+    // `drop_field` resolved its vertex by the same convention, so dropping
+    // a field an earlier component renamed silently kept it.
+    let source = flat_schema("user", &[("a", "string"), ("keep", "string")]);
+    let circuit = build_chain(&[
+        ("r1", "rename_field", vec![("old_name", "a"), ("new_name", "b")]),
+        ("d1", "drop_field", vec![("field_name", "b")]),
+    ]);
+    let out = run_forward(&circuit, &source, r#"{"a": "X", "keep": "Y"}"#);
+    assert!(out.get("b").is_none(), "renamed field must be dropped; got {out}");
+    assert!(out.get("a").is_none(), "original name must not reappear; got {out}");
+    assert_eq!(out["keep"], serde_json::json!("Y"), "got {out}");
 }

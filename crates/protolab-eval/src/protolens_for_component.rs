@@ -61,11 +61,17 @@ pub fn circuit_to_chain_and_transforms(
         .and_then(find_root_vertex)
         .unwrap_or_else(|| Name::from("root"));
 
+    // Tracks what each field name points at as the chain is built, so a
+    // component naming a field an earlier component renamed resolves to the
+    // right vertex.
+    let mut fields = FieldVertexIndex::from_schema(source_schema, &parent_vertex);
+
     for comp_id in &sorted {
         let comp_type = find_constraint(circuit, comp_id, "component_type")
             .ok_or_else(|| EvalError::UnknownComponentType(comp_id.to_string()))?;
 
-        let chain = component_to_chain(circuit, comp_id, &comp_type, &parent_vertex)?;
+        let chain = component_to_chain(circuit, comp_id, &comp_type, &parent_vertex, &fields)?;
+        fields.apply(circuit, comp_id, &comp_type, &parent_vertex);
         chains.push(chain);
 
         // Collect value-level effects for this component, keyed by the source
@@ -97,7 +103,10 @@ pub fn component_chain(
         .unwrap_or_else(|| Name::from("root"));
     let comp_type = find_constraint(circuit, comp_id, "component_type")
         .ok_or_else(|| EvalError::UnknownComponentType(comp_id.to_string()))?;
-    component_to_chain(circuit, comp_id, &comp_type, &parent_vertex)
+    // One component in isolation: the schema as given is the state it runs
+    // against, with no earlier component having renamed anything.
+    let fields = FieldVertexIndex::from_schema(source_schema, &parent_vertex);
+    component_to_chain(circuit, comp_id, &comp_type, &parent_vertex, &fields)
 }
 
 /// Compute the **intrinsic optic kind** for a component. This is the
@@ -329,20 +338,99 @@ fn descend_record_wrapper(schema: &Schema, vertex: Name) -> Name {
     vertex
 }
 
+/// Which vertex each field name at the parent currently points at.
+///
+/// Component params name *fields*, but the combinators take the *vertex* a
+/// field's edge points at. Those were previously assumed to line up as
+/// `{parent}.{field}`, which holds for a freshly parsed schema and stops
+/// holding the moment a chain renames anything: `RenameEdgeName` changes
+/// the edge's name and leaves the vertex id alone. A second component
+/// naming the field by its new name then computed a vertex that does not
+/// exist, and the combinator silently did nothing — `a → b` followed by
+/// `b → c` produced `b`, with no error. A swap could not be expressed at
+/// all.
+///
+/// Reading the mapping off the schema and re-keying it as the chain is
+/// built fixes that, and also stops the convention from being load-bearing
+/// for schemas whose vertex ids do not follow it.
+#[derive(Default)]
+struct FieldVertexIndex {
+    by_field: HashMap<String, Name>,
+}
+
+impl FieldVertexIndex {
+    /// Read the fields reachable from `parent` in `schema`.
+    fn from_schema(schema: Option<&Schema>, parent: &Name) -> Self {
+        let mut by_field = HashMap::new();
+        if let Some(schema) = schema {
+            if let Some(edges) = schema.outgoing.get(parent) {
+                for edge in edges {
+                    if let Some(name) = &edge.name {
+                        by_field.insert(name.to_string(), edge.tgt.clone());
+                    }
+                }
+            }
+        }
+        Self { by_field }
+    }
+
+    /// The vertex `field` names, falling back to the `{parent}.{field}`
+    /// convention when the schema does not say — which covers a circuit
+    /// built with no source schema assigned, and a field an earlier
+    /// component introduced.
+    fn vertex_for(&self, field: &str, parent: &Name) -> Name {
+        self.by_field
+            .get(field)
+            .cloned()
+            .unwrap_or_else(|| Name::from(format!("{parent}.{field}").as_str()))
+    }
+
+    /// Fold a component's effect on the field-to-vertex mapping, so the
+    /// next component sees the names the schema will actually carry by the
+    /// time its step runs.
+    fn apply(&mut self, circuit: &Schema, comp_id: &Name, comp_type: &str, parent: &Name) {
+        match comp_type {
+            "rename_field" => {
+                let (Some(old), Some(new)) = (
+                    optional_param(circuit, comp_id, "old_name"),
+                    optional_param(circuit, comp_id, "new_name"),
+                ) else {
+                    return;
+                };
+                // The vertex is unchanged; only the name reaching it moves.
+                let vertex = self.vertex_for(&old, parent);
+                self.by_field.remove(&old);
+                self.by_field.insert(new, vertex);
+            }
+            "add_field" => {
+                if let Some(name) = optional_param(circuit, comp_id, "field_name") {
+                    let vertex = Name::from(format!("{parent}.{name}").as_str());
+                    self.by_field.insert(name, vertex);
+                }
+            }
+            "drop_field" => {
+                if let Some(name) = optional_param(circuit, comp_id, "field_name") {
+                    self.by_field.remove(&name);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 /// Map a single component to a `ProtolensChain` based on its type and params.
 fn component_to_chain(
     circuit: &Schema,
     comp_id: &Name,
     comp_type: &str,
     parent: &Name,
+    fields: &FieldVertexIndex,
 ) -> Result<ProtolensChain, EvalError> {
     match comp_type {
         "rename_field" => {
             let old = require_param(comp_id, circuit, "old_name")?;
             let new = require_param(comp_id, circuit, "new_name")?;
-            // The vertex ID for the field is conventionally `parent.field_name`
-            // in our user schema (see protolab-wasm demo schema construction).
-            let field_vertex = Name::from(format!("{parent}.{old}").as_str());
+            let field_vertex = fields.vertex_for(&old, parent);
             Ok(combinators::rename_field(
                 parent.clone(),
                 field_vertex,
@@ -368,7 +456,7 @@ fn component_to_chain(
         }
         "drop_field" => {
             let name = require_param(comp_id, circuit, "field_name")?;
-            let field_vertex = Name::from(format!("{parent}.{name}").as_str());
+            let field_vertex = fields.vertex_for(&name, parent);
             Ok(combinators::remove_field(field_vertex))
         }
         "hoist_field" => {

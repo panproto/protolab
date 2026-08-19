@@ -225,6 +225,10 @@ fn build_per_component_transforms(
     sorted: &[Name],
 ) -> Result<Vec<Vec<FieldTransform>>, EvalError> {
     let mut out = Vec::with_capacity(sorted.len());
+    // Accumulated field renames from upstream `rename_field` components,
+    // mapping a post-rename name back to the name it carries in the source
+    // frame. See `rewrite_into_source_frame`.
+    let mut to_source_frame: HashMap<String, String> = HashMap::new();
     for comp_id in sorted {
         let comp_type = component_type(circuit, comp_id);
         if matches!(
@@ -246,17 +250,150 @@ fn build_per_component_transforms(
                 circuit, comp_id, &comp_type,
             )?
             .unwrap_or_default();
-            out.push(transforms);
+            out.push(
+                transforms
+                    .into_iter()
+                    .map(|t| rewrite_into_source_frame(t, &to_source_frame))
+                    .collect(),
+            );
             continue;
         }
         let transforms = crate::protolens_for_component::component_to_field_transforms_pub(
             circuit, comp_id, &comp_type,
         )?
         .unwrap_or_default();
+        if comp_type == "rename_field" {
+            record_rename(circuit, comp_id, &mut to_source_frame);
+        }
         out.push(transforms);
     }
     Ok(out)
 }
+
+/// Record a `rename_field` component's mapping, composing through any
+/// earlier rename of the same field so the map always lands on the name
+/// the field carries in the *source* schema.
+fn record_rename(circuit: &Schema, comp_id: &Name, to_source_frame: &mut HashMap<String, String>) {
+    let (Some(old), Some(new)) = (
+        find_param(circuit, comp_id, "old_name"),
+        find_param(circuit, comp_id, "new_name"),
+    ) else {
+        return;
+    };
+    // `a → b` then `b → c` must resolve `c` to `a`, not to `b`.
+    let origin = to_source_frame.get(&old).cloned().unwrap_or(old);
+    to_source_frame.insert(new, origin);
+}
+
+fn find_param(circuit: &Schema, comp_id: &Name, key: &str) -> Option<String> {
+    circuit
+        .constraints
+        .get(comp_id)?
+        .iter()
+        .find(|c| c.sort.as_ref() == format!("param:{key}"))
+        .map(|c| c.value.clone())
+        .filter(|v| !v.is_empty())
+}
+
+/// Rewrite an expression transform's free variables into the source frame.
+///
+/// The authoritative evaluation of an expression component happens in
+/// [`crate::expr_ops`], against the view produced by `get` — where an
+/// upstream `rename_field` has already landed, so the user's expression
+/// correctly names the renamed field. The copy installed on the compiled
+/// lens exists only so a direct `panproto_lens::asymmetric::put` can
+/// recover the original value from the complement, and panproto evaluates
+/// it against the *source* fiber, where the renamed name does not exist.
+///
+/// Up to panproto 0.38 that mismatch was invisible: `apply_field_transforms`
+/// discarded an unevaluable expression and returned success, so the
+/// installed copy quietly no-op'd and `expr_ops` supplied the real value.
+/// panproto 0.57 reports the failure instead (`FieldTransformFailed`),
+/// which aborts `get` before `expr_ops` ever runs. Substituting each
+/// upstream-renamed variable back to its source name makes the installed
+/// copy evaluate in the frame it is actually given. The substitution is
+/// value-preserving because a rename moves a value without changing it.
+///
+/// This is *not* the upstream composition bug (panproto#245/#251), which
+/// is fixed as of 0.68: `compose` now conjugates the field coordinate
+/// through `m1`'s `edge_remap`, and a `ProtolensChain::instantiate`d lens
+/// records that map. Verified against 0.68 — composing two lenses is
+/// functorial, and naming a field the first one took away is rejected at
+/// compose time with `ComposeUnboundField`.
+///
+/// The conjugation survives because protolab never composes. A circuit is
+/// flattened into a single `ProtolensChain`, instantiated once, and every
+/// component's value transforms are installed onto that one migration by
+/// `install_field_transforms`. Within a single migration all transforms
+/// are, by construction, in its source frame — there is no second frame
+/// for `compose_field_transforms` to conjugate between, so the upstream
+/// repair cannot fire here. Dropping this would require protolab to build
+/// a migration per component and compose them, which is a real
+/// restructuring of the evaluation pipeline rather than a deletion.
+fn rewrite_into_source_frame(
+    transform: FieldTransform,
+    to_source_frame: &HashMap<String, String>,
+) -> FieldTransform {
+    if to_source_frame.is_empty() {
+        return transform;
+    }
+    let rewrite = |e: panproto_expr::Expr| -> panproto_expr::Expr {
+        // Collected first, then applied, so a swap `{a → b, b → a}` does
+        // not collapse the way sequential substitution would.
+        let subs: Vec<(std::sync::Arc<str>, &String)> = panproto_expr::free_vars(&e)
+            .iter()
+            .filter_map(|v| to_source_frame.get(&**v).map(|origin| (v.clone(), origin)))
+            .collect();
+        let mut acc = e;
+        let mut staged: Vec<(std::sync::Arc<str>, std::sync::Arc<str>)> = Vec::new();
+        for (i, (var, origin)) in subs.iter().enumerate() {
+            // Park each rewrite on a fresh name first, so an earlier
+            // substitution cannot be re-captured by a later one.
+            let tmp: std::sync::Arc<str> =
+                std::sync::Arc::from(format!("__protolab_swap_{i}__").as_str());
+            acc = panproto_expr::substitute(
+                &acc,
+                var,
+                &panproto_expr::Expr::Var(std::sync::Arc::clone(&tmp)),
+            );
+            staged.push((tmp, std::sync::Arc::from(origin.as_str())));
+        }
+        for (tmp, origin) in staged {
+            acc = panproto_expr::substitute(&acc, &tmp, &panproto_expr::Expr::Var(origin));
+        }
+        acc
+    };
+    match transform {
+        FieldTransform::ApplyExpr {
+            key,
+            expr,
+            inverse,
+            coercion_class,
+        } => FieldTransform::ApplyExpr {
+            // `key` names the field being edited, which for an
+            // `apply_expr` downstream of a rename is the renamed one.
+            key: to_source_frame.get(&key).cloned().unwrap_or(key),
+            expr: rewrite(expr),
+            inverse: inverse.map(rewrite),
+            coercion_class,
+        },
+        FieldTransform::ComputeField {
+            target_key,
+            expr,
+            inverse,
+            coercion_class,
+        } => FieldTransform::ComputeField {
+            // The target is a *new* key, not one the rename touched, so it
+            // is left alone; only the expression reads source-frame names.
+            target_key,
+            expr: rewrite(expr),
+            inverse: inverse.map(rewrite),
+            coercion_class,
+        },
+        other => other,
+    }
+}
+
 
 /// Per-component expression ops in topo order. Non-expression components
 /// contribute an empty list.
