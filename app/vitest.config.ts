@@ -25,6 +25,9 @@ export default defineConfig({
   resolve: {
     alias: {
       "../wasm/bridge": path.resolve(__dirname, "src/test/wasmBridgeMock.ts"),
+      // SessionMenu mounts in the Toolbar, and a real BrowserOAuthClient
+      // assigns location.href on load, which jsdom cannot do.
+      "../sessions/oauth": path.resolve(__dirname, "src/test/oauthMock.ts"),
     },
   },
 });

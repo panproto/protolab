@@ -21,6 +21,12 @@ export default defineConfig(({ command }) => ({
   plugins: [react(), wasm(), topLevelAwait()],
   server: {
     port: 3000,
+    // Bind the loopback IP rather than the default, which resolves to ::1
+    // only. atproto OAuth rejects `localhost` in a redirect_uri (RFC 8252
+    // §8.3), so the dev client registers `http://127.0.0.1:<port>/` — and
+    // the auth server can only redirect back into this tab if the app is
+    // actually being served there. See `sessions/oauth.ts`.
+    host: "127.0.0.1",
     proxy: {
       "/lexicon-garden": {
         target: "https://lexicon.garden",

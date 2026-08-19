@@ -29,12 +29,16 @@ const OPTIC_DESCRIPTIONS: Record<string, string> = {
 
 export function WireEdge(props: EdgeProps) {
   const {
+    id,
     sourceX,
     sourceY,
     targetX,
     targetY,
     sourcePosition,
     targetPosition,
+    markerStart,
+    markerEnd,
+    interactionWidth,
     data,
     selected,
   } = props;
@@ -56,8 +60,18 @@ export function WireEdge(props: EdgeProps) {
 
   return (
     <>
+      {/* Only what BaseEdge actually consumes. Spreading the whole
+          `EdgeProps` here put React Flow's layout props — sourceX,
+          sourcePosition, sourceHandleId, pathOptions, selectable,
+          deletable, and the rest — straight onto the underlying <path>,
+          which React reports one console warning at a time on every
+          render. They describe where to draw the edge, not attributes of
+          the drawn element. */}
       <BaseEdge
-        {...props}
+        id={id}
+        markerStart={markerStart}
+        markerEnd={markerEnd}
+        interactionWidth={interactionWidth}
         path={edgePath}
         style={{
           stroke: selected ? "#fff" : color,
