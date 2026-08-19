@@ -510,13 +510,28 @@ fn export_circuit_as_nickel_inner(handle: u32) -> Result<String, WasmError> {
 
 /// Import a LensDocument from JSON and build a circuit. Returns handle.
 #[wasm_bindgen]
-pub fn import_lens_document(json_source: &str) -> Result<u32, JsError> {
+pub fn import_lens_document(json_source: &str) -> Result<Vec<u8>, JsError> {
     import_lens_document_inner(json_source).map_err(Into::into)
 }
 
-fn import_lens_document_inner(json_source: &str) -> Result<u32, WasmError> {
+/// Handle plus anything the canvas could not carry across.
+#[derive(Serialize)]
+struct LensImportResult {
+    handle: u32,
+    /// Parts of the document the circuit has no representation for. These
+    /// are dropped, so exporting the circuit will not reproduce them.
+    dropped: Vec<String>,
+}
+
+fn import_lens_document_inner(json_source: &str) -> Result<Vec<u8>, WasmError> {
+    // Inspect the modifiers before the conversion discards them.
+    let dropped = convert::unrepresentable_parts_json(json_source);
+
     let schema = convert::import_lens_json(json_source).map_err(WasmError::Circuit)?;
-    Ok(slab::alloc(Resource::Circuit(CircuitState::new(schema))))
+    let handle = slab::alloc(Resource::Circuit(CircuitState::new(schema)));
+
+    rmp_serde::to_vec_named(&LensImportResult { handle, dropped })
+        .map_err(|e| WasmError::SerializationFailed(e.to_string()))
 }
 
 /// Import a panproto schema from JSON. Returns handle + summary msgpack.
@@ -537,6 +552,161 @@ pub fn export_schema_json(schema_handle: u32) -> Result<String, JsError> {
 fn export_schema_json_inner(schema_handle: u32) -> Result<String, WasmError> {
     let schema = slab::get_schema(schema_handle)?;
     serde_json::to_string(&schema).map_err(|e| WasmError::SerializationFailed(e.to_string()))
+}
+
+/// The MessagePack payload for a `dev.panproto.schema.schema` record.
+///
+/// The full schema, so a consumer can decode the blob straight back into a
+/// `Schema`. This is deliberately *not* panproto's canonical encoding —
+/// that form drops derived fields and exists only to be hashed. The
+/// canonical id travels separately, in [`schema_object_hash`].
+#[wasm_bindgen]
+pub fn schema_msgpack(schema_handle: u32) -> Result<Vec<u8>, JsError> {
+    schema_msgpack_inner(schema_handle).map_err(Into::into)
+}
+
+fn schema_msgpack_inner(schema_handle: u32) -> Result<Vec<u8>, WasmError> {
+    let schema = slab::get_schema(schema_handle)?;
+    rmp_serde::to_vec(&schema).map_err(|e| WasmError::SerializationFailed(e.to_string()))
+}
+
+/// panproto's content-addressed object id for a schema, as 64 hex chars.
+///
+/// `panproto_vcs::hash::hash_schema` — blake3 over the canonical
+/// MessagePack form. Publishing panproto's own object id, rather than a
+/// digest of whichever bytes we happened to upload, is what lets a record
+/// line up with the same schema held in a panproto VCS repo or registry:
+/// two peers that serialize differently still agree on the id. A consumer
+/// verifies by decoding the blob and re-running `hash_schema`.
+#[wasm_bindgen]
+pub fn schema_object_hash(schema_handle: u32) -> Result<String, JsError> {
+    schema_object_hash_inner(schema_handle).map_err(Into::into)
+}
+
+fn schema_object_hash_inner(schema_handle: u32) -> Result<String, WasmError> {
+    let schema = slab::get_schema(schema_handle)?;
+    panproto_vcs::hash::hash_schema(&schema)
+        .map(|id| id.to_string())
+        .map_err(|e| WasmError::SerializationFailed(e.to_string()))
+}
+
+/// What two schemas share, measured rather than guessed.
+///
+/// The candidate search answers "is there a lens worth installing", and
+/// when it says no the canvas had nothing further to offer: it asserted
+/// that the field names "don't overlap enough for the solver to guess",
+/// which is a claim about the schemas that nothing had established. The
+/// span search answers a different and always-answerable question — what
+/// is the largest part of the source that *does* map — and never refuses:
+/// two schemas with nothing in common come back as an empty apex rather
+/// than as a failure.
+///
+/// Reported per pair rather than as a score. `SchemaSpan::quality` is
+/// documented as a ranking signal among spans over one source schema with
+/// no absolute reading, so showing it as a number a user could compare
+/// across schema pairs would be inventing a meaning it does not have.
+/// `apex_coverage` is `|apex.vertices| / |src.vertices|`, which does mean
+/// what it looks like.
+#[wasm_bindgen]
+pub fn schema_span(source_handle: u32, target_handle: u32) -> Result<Vec<u8>, JsError> {
+    schema_span_inner(source_handle, target_handle).map_err(Into::into)
+}
+
+#[derive(Serialize)]
+struct SpanPair {
+    src: String,
+    tgt: String,
+}
+
+#[derive(Serialize)]
+struct SpanReport {
+    /// Vertices of the source the search could place, paired with where.
+    pairs: Vec<SpanPair>,
+    /// `|apex| / |source|`, in `[0, 1]`.
+    apex_coverage: f64,
+    apex_vertex_count: usize,
+    source_vertex_count: usize,
+    /// Whether the apex covers the whole source — the degenerate case
+    /// where the span is a total morphism.
+    is_total: bool,
+    /// Whether the search proved this the optimum rather than running out
+    /// of budget. An unproven answer is a lower bound, not a verdict.
+    proven_optimal: bool,
+}
+
+fn schema_span_inner(source_handle: u32, target_handle: u32) -> Result<Vec<u8>, WasmError> {
+    let source = slab::get_schema(source_handle)?;
+    let target = slab::get_schema(target_handle)?;
+    let protocol = panproto_protocols_default(&source);
+
+    let span = panproto_mig::hom_search::find_span(
+        &source,
+        &target,
+        &protocol,
+        &panproto_mig::SearchOptions::default(),
+    )
+    .map_err(|e| WasmError::DeserializationFailed(format!("span search: {e}")))?;
+
+    // The left leg is an inclusion — apex vertex ids *are* source vertex
+    // ids — so the apex's own vertices are the source side of each pair and
+    // the right leg says where each one went.
+    let mut pairs: Vec<SpanPair> = span
+        .apex
+        .vertices
+        .keys()
+        .filter_map(|v| {
+            span.right.vertex_map.get(v).map(|tgt| SpanPair {
+                src: v.to_string(),
+                tgt: tgt.to_string(),
+            })
+        })
+        .collect();
+    // `vertices` is a HashMap, so without this the list reorders between
+    // runs and the panel it feeds reshuffles on every search.
+    pairs.sort_by(|a, b| a.src.cmp(&b.src).then_with(|| a.tgt.cmp(&b.tgt)));
+
+    let report = SpanReport {
+        apex_vertex_count: span.apex.vertices.len(),
+        source_vertex_count: source.vertices.len(),
+        apex_coverage: span.apex_coverage,
+        is_total: span.is_total(),
+        proven_optimal: span.certificate.proven_optimal,
+        pairs,
+    };
+    rmp_serde::to_vec_named(&report).map_err(|e| WasmError::SerializationFailed(e.to_string()))
+}
+
+/// MessagePack payload for a `dev.panproto.schema.lens` record: the
+/// circuit's `LensDocument`, the same structure `export_lens_json` emits.
+#[wasm_bindgen]
+pub fn lens_msgpack(handle: u32, source: &str, target: &str) -> Result<Vec<u8>, JsError> {
+    lens_msgpack_inner(handle, source, target).map_err(Into::into)
+}
+
+fn lens_msgpack_inner(handle: u32, source: &str, target: &str) -> Result<Vec<u8>, WasmError> {
+    let circuit = slab::with_resource(handle, |r| match r {
+        Resource::Circuit(state) => Ok(state.schema.clone()),
+        _ => Err(WasmError::TypeMismatch {
+            expected: "Circuit",
+            got: "other",
+        }),
+    })??;
+    let doc = convert::circuit_to_lens_document(&circuit, "lens", source, target)
+        .map_err(|e| WasmError::SerializationFailed(e.to_string()))?;
+    rmp_serde::to_vec(&doc).map_err(|e| WasmError::SerializationFailed(e.to_string()))
+}
+
+/// blake3 object id (64 hex chars) of a byte string, in panproto's hex form.
+///
+/// A lens record's `objectHash` is this over the record's own blob. Unlike
+/// a schema, a `LensDocument` has no canonical form in `panproto-vcs`
+/// (`hash_migration` addresses a *compiled* migration between two schema
+/// ids, which is a different object), so the lens is addressed by the bytes
+/// it actually ships. That keeps the record self-verifying: hash the blob
+/// you downloaded and compare.
+#[wasm_bindgen]
+pub fn blake3_hex(bytes: &[u8]) -> String {
+    blake3::hash(bytes).to_hex().to_string()
 }
 
 fn import_schema_json_inner(json_source: &str) -> Result<Vec<u8>, WasmError> {
@@ -1294,7 +1464,6 @@ fn auto_generate_candidates_inner(
             excluded_targets: opts.excluded_targets,
             excluded_sources: opts.excluded_sources,
             scoring_weights: None,
-            name_similarity_threshold: None,
         };
         let (anchors, domain_constraints) = resolve_hints(&parts, &source, &target);
         auto_generate_candidates_with_hints(
@@ -1476,14 +1645,20 @@ fn install_candidate_components_inner(
     // if any step below bails. The `?` operator plus a taken
     // resource would leak the slot otherwise.
     let run = || -> Result<Vec<u8>, WasmError> {
-        // No coverage gate here: any candidate reaching this entry
-        // has already cleared the 0.15 threshold upstream in
-        // `auto_generate_candidates_inner`, and a secondary metric
-        // computed here (surviving-vertex ratio from
-        // `extract_schema_mapping`) would use different arithmetic
-        // than panproto's `LensCandidate.coverage` and could reject
-        // a legitimate candidate over rounding. Defend at the
-        // generation site, not here.
+        // No coverage gate here. A secondary metric computed at this
+        // point (a surviving-vertex ratio from `extract_schema_mapping`)
+        // would use different arithmetic than panproto's
+        // `LensCandidate.coverage` and could reject a legitimate
+        // candidate over rounding. The structural gate in
+        // `auto_generate_candidates_inner` — did the compiled lens map
+        // anything at all — is where a useless candidate is refused.
+        // Defend at the generation site, not here.
+        //
+        // This used to cite a fixed 0.15 coverage floor upstream. There
+        // is no such number in panproto 0.71: `auto_generate` now
+        // compares the pinned and released searches on the objective
+        // (quality first, coverage second) rather than gating either on
+        // a threshold.
         let mapping = extract_schema_mapping(&lens, &source, &target);
 
         install_field_level_components(circuit_handle, &lens, &chain)?;
@@ -1560,10 +1735,25 @@ fn discover_anchors_inner(
 
     let (raw_anchors, _coerce_proposals) = run_strategies_for_tests(&source, &target, &config);
 
-    // Collapse to a HashMap-resolved pool, then emit the survivors.
-    // The same resolution the CSP seeds on, so the displayed set
-    // matches the one the morphism search actually tried.
-    let resolved = panproto_mig::align::resolve_anchors(&raw_anchors, false);
+    // Collapse the raw pool to one pair per source, then emit the
+    // survivors. The same resolution the search seeds on, so the displayed
+    // set matches the one the morphism search actually tried.
+    //
+    // panproto 0.71 replaced the per-source argmax `align::resolve_anchors`
+    // with aggregate-then-select: the whole pool reduces to one score per
+    // (source, target) — a provenance ceiling, a priority band, a `max`
+    // within each of six evidence families, then a fixed-arity mean — and
+    // the choice is made off that table. `StrictPriority` + `Strict` +
+    // `relative_only` is the combination the search itself uses; the
+    // relative tolerance rather than an absolute floor is the decision
+    // rule, because a mean over six families never clears the floor on the
+    // strength of one family alone.
+    use panproto_mig::align::evidence::{
+        AggregationPolicy, Cardinality, RowFilter, aggregate,
+    };
+    let resolved = aggregate(&raw_anchors, AggregationPolicy::StrictPriority)
+        .select(Cardinality::Strict, RowFilter::relative_only())
+        .to_map();
 
     #[derive(Serialize)]
     struct AnchorDesc {
@@ -4700,13 +4890,25 @@ mod tests {
         let r: R = rmp_serde::from_slice(&bytes).unwrap();
 
         let json = export_circuit_as_lens_json_inner(r.handle).unwrap();
-        let imported = import_lens_document_inner(&json).unwrap();
-        let g = decode_graph(&get_circuit_graph_inner(imported).unwrap());
+        #[derive(Deserialize)]
+        struct Imported {
+            handle: u32,
+            dropped: Vec<String>,
+        }
+        let imported: Imported =
+            rmp_serde::from_slice(&import_lens_document_inner(&json).unwrap()).unwrap();
+        let g = decode_graph(&get_circuit_graph_inner(imported.handle).unwrap());
         assert_eq!(g.nodes.len(), 3, "round-trip must preserve component count");
+        assert!(
+            imported.dropped.is_empty(),
+            "a document protolab exported carries only what protolab can \
+             draw, so re-importing it must drop nothing; got {:?}",
+            imported.dropped
+        );
 
         free_handle(r.handle);
         free_handle(r.source_schema_handle);
-        free_handle(imported);
+        free_handle(imported.handle);
     }
 
     #[test]
@@ -5308,5 +5510,125 @@ mod tests {
         }
         let b: Vec<B> = rmp_serde::from_slice(&bytes).unwrap();
         assert!(b.len() >= 30, "expected ≥30 builtins, got {}", b.len());
+    }
+
+    // ── Span search ─────────────────────────────────────────────────
+
+    fn alloc_schema(schema: &panproto_schema::Schema) -> u32 {
+        let json = serde_json::to_string(schema).unwrap();
+        #[derive(Deserialize)]
+        struct R {
+            handle: u32,
+        }
+        let bytes = import_schema_json_inner(&json).unwrap();
+        rmp_serde::from_slice::<R>(&bytes).unwrap().handle
+    }
+
+    fn span_of(src: &panproto_schema::Schema, tgt: &panproto_schema::Schema) -> SpanReportMirror {
+        let (a, b) = (alloc_schema(src), alloc_schema(tgt));
+        let bytes = schema_span_inner(a, b).unwrap();
+        free_handle(a);
+        free_handle(b);
+        rmp_serde::from_slice(&bytes).unwrap()
+    }
+
+    #[derive(Deserialize)]
+    struct SpanPairMirror {
+        src: String,
+        tgt: String,
+    }
+
+    #[derive(Deserialize)]
+    struct SpanReportMirror {
+        pairs: Vec<SpanPairMirror>,
+        apex_coverage: f64,
+        apex_vertex_count: usize,
+        source_vertex_count: usize,
+        is_total: bool,
+        #[allow(dead_code)]
+        proven_optimal: bool,
+    }
+
+    #[test]
+    fn a_schema_against_itself_spans_totally() {
+        // The identity is the degenerate span. Getting anything less here
+        // would mean the search cannot see an exact correspondence.
+        let s = build_user_schema();
+        let report = span_of(&s, &s);
+        assert!(report.is_total, "a schema must span itself totally");
+        assert!(
+            (report.apex_coverage - 1.0).abs() < 1e-9,
+            "coverage must be 1; got {}",
+            report.apex_coverage
+        );
+        assert_eq!(report.apex_vertex_count, report.source_vertex_count);
+        assert!(!report.pairs.is_empty());
+    }
+
+    #[test]
+    fn every_reported_pair_names_a_source_and_a_target() {
+        let s = build_user_schema();
+        let report = span_of(&s, &s);
+        for p in &report.pairs {
+            assert!(!p.src.is_empty() && !p.tgt.is_empty(), "empty side in a pair");
+        }
+    }
+
+    #[test]
+    fn pairs_come_back_in_a_stable_order() {
+        // `apex.vertices` is a HashMap, so without an explicit sort the
+        // panel these feed would reshuffle on every search.
+        let s = build_user_schema();
+        let first = span_of(&s, &s);
+        let second = span_of(&s, &s);
+        let key = |r: &SpanReportMirror| {
+            r.pairs.iter().map(|p| format!("{}>{}", p.src, p.tgt)).collect::<Vec<_>>()
+        };
+        assert_eq!(key(&first), key(&second), "pair order must be deterministic");
+        // Field-wise by (src, tgt) — not by the formatted `src>tgt` string,
+        // whose separator sorts differently from a field boundary.
+        let ordered: Vec<(&str, &str)> = first
+            .pairs
+            .iter()
+            .map(|p| (p.src.as_str(), p.tgt.as_str()))
+            .collect();
+        let mut expected = ordered.clone();
+        expected.sort_unstable();
+        assert_eq!(ordered, expected, "pairs must be sorted by (src, tgt)");
+    }
+
+    #[test]
+    fn span_reports_rather_than_refuses_when_nothing_matches() {
+        // The whole reason to run a span where the candidate search gave
+        // up: it never refuses, so "they share nothing" is an answer with
+        // a number attached rather than an error.
+        let src = build_user_schema();
+        let tgt = {
+            use panproto_gat::Name;
+            use panproto_schema::Vertex;
+            // Start from a valid schema of the same protocol and replace its
+            // contents, so every one of `Schema`'s fields is populated the
+            // way the protocol expects rather than defaulted.
+            let mut t = build_user_schema();
+            t.vertices.clear();
+            t.edges.clear();
+            t.outgoing.clear();
+            t.incoming.clear();
+            t.between.clear();
+            t.vertices.insert(
+                Name::from("zzz_unrelated"),
+                Vertex { id: "zzz_unrelated".into(), kind: "object".into(), nsid: None },
+            );
+            t.entries = vec![Name::from("zzz_unrelated")];
+            t
+        };
+        let report = span_of(&src, &tgt);
+        assert!(!report.is_total, "an unrelated target cannot span totally");
+        assert!(
+            report.apex_coverage < 1.0,
+            "coverage must be below one; got {}",
+            report.apex_coverage
+        );
+        assert!(report.source_vertex_count > 0);
     }
 }
