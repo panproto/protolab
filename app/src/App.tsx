@@ -230,10 +230,19 @@ export default function App() {
         // `?c=` override: decode the serialized lens doc into a fresh
         // circuit handle via importLensDocument.
         try {
-          const newHandle = wasm.importLensDoc(url.circuitJson);
+          const { handle: newHandle, dropped } = wasm.importLensDoc(
+            url.circuitJson,
+          );
           const graph = wasm.getGraph(newHandle);
           useCircuitStore.setState({ circuitHandle: newHandle });
           applyGraph(graph);
+          // A share URL can carry a document with more in it than the
+          // canvas draws; say so rather than opening a quietly smaller lens.
+          if (dropped.length > 0) {
+            useCircuitStore.setState({
+              error: `Imported, but the canvas cannot carry every part of this lens. ${dropped.join(" ")}`,
+            });
+          }
         } catch (err) {
           useCircuitStore.setState({ error: String(err) });
         }

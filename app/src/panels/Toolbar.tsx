@@ -9,6 +9,8 @@ import { ColimitComposer } from "./ColimitComposer";
 import { SchemaBrowser } from "./SchemaBrowser";
 import { ProtocolEditor } from "./ProtocolEditor";
 import { KeyboardHelp } from "./KeyboardHelp";
+import { SessionMenu } from "../components/SessionMenu";
+import { LensLibrary } from "../components/LensLibrary";
 
 export function Toolbar() {
   const [importOpen, setImportOpen] = useState(false);
@@ -19,6 +21,7 @@ export function Toolbar() {
   const [schemaBrowserOpen, setSchemaBrowserOpen] = useState(false);
   const [protocolEditorOpen, setProtocolEditorOpen] = useState(false);
   const [keysOpen, setKeysOpen] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(false);
   const { importLensDocument, importSchema, importTheory, importProtocol, setError } =
     useCircuitStore();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -108,6 +111,15 @@ export function Toolbar() {
         title="Define a custom protocol (object kinds and edge rules)"
       >
         Protocols
+      </button>
+
+      {/* Lens library button */}
+      <button
+        style={buttonStyle}
+        onClick={() => setLibraryOpen(true)}
+        title="Publish this lens to a PDS, or browse a published lens library"
+      >
+        Library
       </button>
 
       {/* Import dropdown */}
@@ -269,7 +281,11 @@ export function Toolbar() {
         ?
       </button>
 
+      {/* Account badge / multi-account switcher, pushed to the right edge */}
+      <SessionMenu />
+
       {/* Modals */}
+      {libraryOpen && <LensLibrary onClose={() => setLibraryOpen(false)} />}
       {theoryEditorOpen && <TheoryEditor onClose={() => setTheoryEditorOpen(false)} />}
       {colimitOpen && <ColimitComposer onClose={() => setColimitOpen(false)} />}
       {schemaBrowserOpen && <SchemaBrowser onClose={() => setSchemaBrowserOpen(false)} />}

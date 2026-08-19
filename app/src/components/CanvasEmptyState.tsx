@@ -18,6 +18,7 @@
  */
 
 import { useCircuitStore } from "../store/circuitStore";
+import type * as wasm from "../wasm/bridge";
 import { StringencySelector, CandidateList } from "./CandidateList";
 
 const PANEL_BG = "oklch(0.14 0.01 250)";
@@ -55,6 +56,7 @@ export function CanvasEmptyState() {
   const promoteAnchorToHint = useCircuitStore((s) => s.promoteAnchorToHint);
   const removeAnchorHint = useCircuitStore((s) => s.removeAnchorHint);
   const autoLensError = useCircuitStore((s) => s.autoLensError);
+  const span = useCircuitStore((s) => s.schemaSpan);
 
   if (!shouldShow) return null;
 
@@ -110,12 +112,24 @@ export function CanvasEmptyState() {
           }}
         >
           {isErrored
-            ? "The solver couldn't fit a morphism with enough coverage to produce a useful lens — common when the schemas cover different vocabularies and most of one side has no analog on the other."
-            : "panproto couldn't derive a transform between these schemas automatically. The field names don't overlap enough for the solver to guess."}{" "}
+            ? "The solver couldn't fit a morphism with enough coverage to produce a useful lens."
+            : "panproto couldn't derive a transform between these schemas automatically."}{" "}
+          {/* What the two schemas share is a separate question from
+              whether a lens is worth installing, and it always has an
+              answer. Saying it beats the guess that used to stand here —
+              that the names "don't overlap enough" — which was an
+              assertion about the schemas that nothing had measured. */}
+          {span
+            ? span.apex_vertex_count === 0
+              ? `A span search finds nothing in common: none of the ${span.source_vertex_count} source vertices has a counterpart in the target.`
+              : `A span search covers ${span.apex_vertex_count} of ${span.source_vertex_count} source vertices (${Math.round(span.apex_coverage * 100)}%)${span.proven_optimal ? "" : ", and ran out of budget before proving that the most"} — enough to map by hand, not enough for the solver to commit to a lens.`
+            : ""}{" "}
           {unpinnedAnchors.length > 0
             ? "Lock one of the correspondences below as a hint and the search will retry — or open the hint editor for full control."
             : "Add hints to guide the search, or build the chain by hand."}
         </div>
+
+        {span && span.pairs.length > 0 && <SpanOverlap span={span} />}
 
         {unpinnedAnchors.length > 0 && (
           <AnchorChips
@@ -449,4 +463,59 @@ function strategyLabel(tag: string): string {
     .replace(/([a-z])([A-Z])/g, "$1 $2")
     .replace(/([A-Z])([A-Z][a-z])/g, "$1 $2")
     .toLowerCase();
+}
+
+/**
+ * The correspondences a span search found, when the candidate search
+ * found no lens.
+ *
+ * These are not lens steps and are not installed — they are the largest
+ * part of the source the search could place, which is what the user needs
+ * to decide whether to map by hand. Shown as plain pairs rather than as a
+ * score, because panproto documents a span's `quality` as a ranking
+ * signal among spans over one source schema with no absolute reading.
+ */
+function SpanOverlap({ span }: { span: wasm.SpanReport }) {
+  const SHOWN = 8;
+  const shown = span.pairs.slice(0, SHOWN);
+  const rest = span.pairs.length - shown.length;
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div
+        style={{
+          fontSize: 11,
+          color: "#9aa0ab",
+          marginBottom: 6,
+          letterSpacing: "0.01em",
+        }}
+      >
+        Largest shared sub-schema
+      </div>
+      <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+        {shown.map((p) => (
+          <li
+            key={`${p.src}>${p.tgt}`}
+            style={{
+              display: "flex",
+              alignItems: "baseline",
+              gap: 6,
+              fontFamily: "monospace",
+              fontSize: 11,
+              color: "#c8cdd6",
+              padding: "2px 0",
+            }}
+          >
+            <span style={{ opacity: 0.85 }}>{p.src}</span>
+            <span style={{ color: ACCENT_GREEN }}>→</span>
+            <span style={{ opacity: 0.85 }}>{p.tgt}</span>
+          </li>
+        ))}
+      </ul>
+      {rest > 0 && (
+        <div style={{ fontSize: 10, color: "#7d8390", marginTop: 4 }}>
+          and {rest} more
+        </div>
+      )}
+    </div>
+  );
 }

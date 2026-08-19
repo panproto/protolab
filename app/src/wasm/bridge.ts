@@ -17,6 +17,11 @@ import init, {
   export_circuit_as_yaml,
   export_circuit_as_nickel,
   import_lens_document,
+  schema_span,
+  schema_msgpack as schema_msgpack_wasm,
+  schema_object_hash as schema_object_hash_wasm,
+  lens_msgpack as lens_msgpack_wasm,
+  blake3_hex as blake3_hex_wasm,
   import_schema_json,
   import_theory_json,
   import_protocol_json,
@@ -240,8 +245,64 @@ export function exportNickel(handle: number): string {
 
 // ── Import ──────────────────────────────────────────────────────────
 
-export function importLensDoc(jsonSource: string): number {
-  return import_lens_document(jsonSource);
+/** One vertex of the source, and where the span placed it. */
+export interface SpanPair {
+  src: string;
+  tgt: string;
+}
+
+/**
+ * What two schemas share, measured.
+ *
+ * The candidate search answers "is there a lens worth installing"; the
+ * span search answers "what is the largest part of the source that maps",
+ * and never refuses — two schemas with nothing in common come back as an
+ * empty apex rather than an error.
+ *
+ * Note there is no quality score here on purpose: panproto documents
+ * `SchemaSpan::quality` as a ranking signal among spans over one source
+ * schema with no absolute reading, so surfacing it as a number a user
+ * might compare across schema pairs would invent a meaning it lacks.
+ */
+export interface SpanReport {
+  /** Source vertices the search could place, sorted by source name. */
+  pairs: SpanPair[];
+  /** `|apex| / |source|`, in [0, 1]. */
+  apex_coverage: number;
+  apex_vertex_count: number;
+  source_vertex_count: number;
+  /** The apex covers the whole source: the span is a total morphism. */
+  is_total: boolean;
+  /** The search proved this optimal rather than exhausting its budget. */
+  proven_optimal: boolean;
+}
+
+/**
+ * Run the span search between two imported schemas.
+ *
+ * Safe to call after auto-generation reports no candidates: this is the
+ * question that still has an answer at that point.
+ */
+export function schemaSpan(
+  sourceHandle: number,
+  targetHandle: number,
+): SpanReport {
+  return decode(schema_span(sourceHandle, targetHandle)) as SpanReport;
+}
+
+export interface LensImportResult {
+  handle: number;
+  /**
+   * Parts of the document the circuit has no representation for, one
+   * sentence each. The canvas draws a `steps` body; a document's directed
+   * equations, rules-variant metadata, and extensions are dropped on the
+   * way in and will not reappear on export.
+   */
+  dropped: string[];
+}
+
+export function importLensDoc(jsonSource: string): LensImportResult {
+  return decode(import_lens_document(jsonSource)) as LensImportResult;
 }
 
 export function importSchema(jsonSource: string): SchemaImportResult {
@@ -362,6 +423,44 @@ export function getSchemaDetails(schemaHandle: number): SchemaDetails {
  */
 export function exportSchemaJson(schemaHandle: number): string {
   return export_schema_json_wasm(schemaHandle);
+}
+
+// ── atproto publishing: content addressing (v0.8.0) ──────────────────
+
+/**
+ * MessagePack payload for a `dev.panproto.schema.schema` record — the
+ * full schema, decodable straight back into a `Schema`.
+ */
+export function schemaMsgpack(schemaHandle: number): Uint8Array {
+  return schema_msgpack_wasm(schemaHandle);
+}
+
+/**
+ * panproto's content-addressed object id for a schema (64 hex chars).
+ *
+ * blake3 over the canonical MessagePack form. Two peers that serialize a
+ * schema differently still agree on this id, which is what makes a
+ * published record line up with the same schema in a panproto repo.
+ */
+export function schemaObjectHash(schemaHandle: number): string {
+  return schema_object_hash_wasm(schemaHandle);
+}
+
+/**
+ * MessagePack payload for a `dev.panproto.schema.lens` record: the
+ * circuit's LensDocument, addressed by `source`/`target` at-uris.
+ */
+export function lensMsgpack(
+  handle: number,
+  source: string,
+  target: string,
+): Uint8Array {
+  return lens_msgpack_wasm(handle, source, target);
+}
+
+/** blake3 object id (64 hex chars) of a byte string, in panproto's hex form. */
+export function blake3Hex(bytes: Uint8Array): string {
+  return blake3_hex_wasm(bytes);
 }
 
 // ── Candidate API (v0.33.0) ──────────────────────────────────────────
