@@ -62,6 +62,12 @@ export function PresentationToolbar() {
           borderBottom: "1px solid oklch(0.25 0.01 250)",
           color: "#ddd",
           fontSize: 12,
+          // The bar carries six controls now that the library and the
+          // account badge live here, which is wider than a 375px viewport.
+          // Wrap rather than overflow: the edit toolbar already does, and a
+          // horizontal scrollbar on the whole document is the one outcome
+          // the mobile spec rules out.
+          flexWrap: "wrap",
         }}
       >
         <div style={{ fontWeight: 600, fontSize: 14 }}>{title}</div>

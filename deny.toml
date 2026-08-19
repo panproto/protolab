@@ -15,6 +15,16 @@ ignore = [
     # nickel-lang-core used only at Nickel evaluation time (not in hot paths).
     # No security impact; will be resolved when nickel-lang updates.
     "RUSTSEC-2024-0436",
+    # bitmaps is unmaintained (RUSTSEC-2026-0247, archived 2026-05-03) and
+    # reaches us the same way paste does: bitmaps -> imbl-sized-chunks ->
+    # nickel-lang-vector -> nickel-lang -> panproto-dsl-eval. It is a bitset
+    # data structure with no reported vulnerability, and the advisory itself
+    # records "no safe upgrade is available", so there is nothing to move to
+    # until nickel-lang changes what it depends on. Not introduced by any
+    # protolab change: the crate is in main's lockfile too, and this became a
+    # CI failure when the advisory landed in the database rather than when
+    # the dependency did.
+    "RUSTSEC-2026-0247",
 ]
 
 [licenses]
