@@ -367,7 +367,7 @@ describe("updateParam", () => {
 
 describe("importLensDocument", () => {
   it("sets a new circuitHandle from importLensDoc and applies the graph", () => {
-    vi.mocked(wasm.importLensDoc).mockReturnValueOnce(99);
+    vi.mocked(wasm.importLensDoc).mockReturnValueOnce({ handle: 99, dropped: [] });
     vi.mocked(wasm.getGraph).mockReturnValueOnce(
       makeCircuitGraph({
         nodes: [makeGraphNode({ id: "only" })],
@@ -382,9 +382,78 @@ describe("importLensDocument", () => {
     expect(wasm.importLensDoc).toHaveBeenCalledWith('{"x":1}');
   });
 
+  // The canvas draws a `steps` body and nothing else, so a document
+  // carrying directed equations, rules metadata, or extensions opens as a
+  // strictly smaller thing than it is — and exporting it will not put them
+  // back. Import still succeeds; what must not happen is it succeeding
+  // quietly.
+  it("reports the parts of a lens the canvas could not carry", () => {
+    vi.mocked(wasm.importLensDoc).mockReturnValueOnce({
+      handle: 5,
+      dropped: ["2 directed equation(s): they will not be exported."],
+    });
+    vi.mocked(wasm.getGraph).mockReturnValueOnce(makeCircuitGraph({ nodes: [], edges: [] }));
+    useCircuitStore.getState().importLensDocument('{"x":1}');
+    const state = useCircuitStore.getState();
+    expect(state.circuitHandle).toBe(5);
+    expect(state.error).toContain("cannot carry every part");
+    expect(state.error).toContain("directed equation");
+  });
+
+  it("clears a previous error when nothing was dropped", () => {
+    useCircuitStore.setState({ error: "stale complaint from an earlier import" });
+    vi.mocked(wasm.importLensDoc).mockReturnValueOnce({ handle: 6, dropped: [] });
+    vi.mocked(wasm.getGraph).mockReturnValueOnce(makeCircuitGraph({ nodes: [], edges: [] }));
+    useCircuitStore.getState().importLensDocument('{"x":1}');
+    expect(useCircuitStore.getState().error).toBeNull();
+  });
+
+  // "No lens worth installing" says nothing about what the two schemas
+  // share, and the empty state used to fill that gap by asserting the
+  // names "don't overlap enough" — which nothing had measured. The span
+  // search does answer it, and never refuses.
+  it("records what the schemas share when no candidate is found", () => {
+    vi.mocked(wasm.autoGenerateCandidates).mockImplementationOnce(() => {
+      throw new Error("no morphism found between schemas");
+    });
+    vi.mocked(wasm.schemaSpan).mockReturnValueOnce({
+      pairs: [{ src: "user.tags", tgt: "post.tags" }],
+      apex_coverage: 0.25,
+      apex_vertex_count: 1,
+      source_vertex_count: 4,
+      is_total: false,
+      proven_optimal: true,
+    });
+    useCircuitStore.setState({ sourceSchemaHandle: 1, targetSchemaHandle: 2 });
+    useCircuitStore.getState().generateCandidates();
+    const span = useCircuitStore.getState().schemaSpan;
+    expect(span).not.toBeNull();
+    expect(span?.pairs).toHaveLength(1);
+    expect(span?.apex_coverage).toBeCloseTo(0.25);
+  });
+
+  it("clears the span once a candidate is found again", () => {
+    // A stale overlap beside a freshly installed lens would describe a
+    // search that is no longer the one on screen.
+    useCircuitStore.setState({
+      sourceSchemaHandle: 1,
+      targetSchemaHandle: 2,
+      schemaSpan: {
+        pairs: [{ src: "a", tgt: "b" }],
+        apex_coverage: 0.5,
+        apex_vertex_count: 1,
+        source_vertex_count: 2,
+        is_total: false,
+        proven_optimal: true,
+      },
+    });
+    useCircuitStore.getState().generateCandidates();
+    expect(useCircuitStore.getState().schemaSpan).toBeNull();
+  });
+
   it("frees the old handle when replacing an existing circuit", () => {
     useCircuitStore.setState({ circuitHandle: 5 });
-    vi.mocked(wasm.importLensDoc).mockReturnValueOnce(99);
+    vi.mocked(wasm.importLensDoc).mockReturnValueOnce({ handle: 99, dropped: [] });
     useCircuitStore.getState().importLensDocument("{}");
     expect(wasm.free_handle).toHaveBeenCalledWith(5);
   });
@@ -964,5 +1033,44 @@ describe("setError", () => {
     useCircuitStore.setState({ error: "old" });
     useCircuitStore.getState().setError(null);
     expect(useCircuitStore.getState().error).toBeNull();
+  });
+});
+
+// ── setMode URL rewriting ───────────────────────────────────────────
+
+// `setMode` runs from App's boot effect and rewrites the URL. atproto
+// OAuth uses `response_mode=fragment`, so a completed sign-in returns to
+// `/#code=...&state=...`. Dropping the fragment here turns the callback
+// into an ordinary page load: the authorization request has already
+// succeeded, but the token exchange never runs, and the user lands on a
+// signed-out app with no error to explain it.
+describe("setMode URL rewriting", () => {
+  const setUrl = (url: string) => window.history.replaceState(null, "", url);
+
+  it("preserves an OAuth callback fragment when entering presentation mode", () => {
+    setUrl("/?foo=bar#code=abc123&state=xyz789");
+    useCircuitStore.getState().setMode("presentation");
+    expect(window.location.hash).toBe("#code=abc123&state=xyz789");
+    expect(window.location.search).toContain("mode=presentation");
+  });
+
+  it("preserves the fragment when leaving presentation mode", () => {
+    setUrl("/?mode=presentation#code=abc123&state=xyz789");
+    useCircuitStore.getState().setMode("edit");
+    expect(window.location.hash).toBe("#code=abc123&state=xyz789");
+    expect(window.location.search).not.toContain("mode=presentation");
+  });
+
+  it("leaves the URL fragment-free when there was none", () => {
+    setUrl("/?mode=presentation");
+    useCircuitStore.getState().setMode("edit");
+    expect(window.location.hash).toBe("");
+  });
+
+  it("keeps unrelated query params alongside the mode flag", () => {
+    setUrl("/?c=encodedcircuit");
+    useCircuitStore.getState().setMode("presentation");
+    expect(window.location.search).toContain("c=encodedcircuit");
+    expect(window.location.search).toContain("mode=presentation");
   });
 });

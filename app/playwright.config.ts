@@ -18,10 +18,16 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: "list",
   use: {
-    // Match the `base: "/"` from `vite.config.ts` in dev mode. Vite binds
-    // to `localhost` (ipv6 `::1`) by default, so using `localhost` here
-    // avoids a 127.0.0.1/::1 mismatch when Playwright probes the server.
-    baseURL: "http://localhost:5180",
+    // Match the `base: "/"` from `vite.config.ts` in dev mode, and its
+    // `server.host`. The dev server binds the loopback *IP* rather than
+    // the default, because atproto OAuth rejects `localhost` in a
+    // redirect_uri (RFC 8252 §8.3) and the dev client registers
+    // `http://127.0.0.1:<port>/`.
+    //
+    // Address it the same way here. `localhost` resolves to `::1` first on
+    // Linux, so probing that against a server bound to 127.0.0.1 is a
+    // connection refused on CI and every spec fails at navigation.
+    baseURL: "http://127.0.0.1:5180",
     trace: "on-first-retry",
     screenshot: "only-on-failure",
   },
@@ -33,7 +39,7 @@ export default defineConfig({
   ],
   webServer: {
     command: "npm run dev -- --port 5180",
-    url: "http://localhost:5180",
+    url: "http://127.0.0.1:5180",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
     // The Vite dev server needs the WASM pkg to be built. Playwright runs

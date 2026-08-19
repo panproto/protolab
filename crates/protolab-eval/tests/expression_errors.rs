@@ -4,16 +4,26 @@
 //! components into `FieldTransform::ApplyExpr` / `FieldTransform::ComputeField`
 //! with parsed `panproto-expr` expressions. At eval time, panproto-inst's
 //! `apply_field_transforms` calls `panproto_expr::eval`. When eval returns
-//! `Err`, the transform is silently dropped — the field is left unchanged
-//! and the surrounding instance passes through. These tests pin that
-//! behavior so if it ever changes, someone has to update the asserts.
+//! `Err`, the whole forward evaluation fails with
+//! `InstanceError::FieldTransformFailed`, which reaches protolab as
+//! `EvalError::Lens`. These tests pin that behavior so if it ever changes,
+//! someone has to update the asserts.
+//!
+//! Up to panproto 0.38 the failing transform was instead dropped silently and
+//! the field passed through unchanged. panproto 0.65 reports it, on the
+//! grounds that a transform which ran and changed nothing is otherwise
+//! indistinguishable from one that failed. protolab surfaces the message on
+//! the store's `error` channel, so a broken expression now names its own
+//! failure — e.g. ``field transform on `name` failed to evaluate: unbound
+//! variable: unknownVar`` — instead of rendering an unexplained no-op.
 //!
 //! They also verify:
 //! - the user-supplied `coercion` tag is trusted verbatim (false-iso detection
 //!   is NOT performed on registration),
 //! - intrinsic optic-kind composition matches `CoercionClass::compose`
 //!   expectations across chained expression components,
-//! - forward eval does not panic when a mid-chain component throws at runtime.
+//! - a mid-chain runtime error aborts the chain with a diagnostic rather than
+//!   panicking or silently continuing.
 
 // Test helpers intentionally use deeply-nested tuples for brevity.
 #![allow(clippy::type_complexity)]
@@ -157,6 +167,23 @@ fn run_forward(circuit: &Schema, source_schema: &Schema, input_json: &str) -> se
     panproto_inst::parse::to_json(&eval.output_schema, &eval.output)
 }
 
+/// Run forward evaluation expecting a runtime failure, and return the
+/// rendered error string. Panics if evaluation unexpectedly succeeds.
+fn run_forward_err(circuit: &Schema, source_schema: &Schema, input_json: &str) -> String {
+    let protocol = make_protocol(source_schema);
+    let root = find_root_vertex(source_schema).unwrap().to_string();
+    let input: serde_json::Value = serde_json::from_str(input_json).unwrap();
+    let input_instance =
+        panproto_inst::parse::parse_json(source_schema, &root, &input).expect("parse_json");
+    match wire_data_for_circuit(circuit, source_schema, &protocol, &input_instance) {
+        Ok(eval) => {
+            let out = panproto_inst::parse::to_json(&eval.output_schema, &eval.output);
+            panic!("expected forward eval to report a transform failure; it succeeded with {out}")
+        }
+        Err(e) => e.to_string(),
+    }
+}
+
 /// Linear chain helper (local copy to avoid touching components.rs).
 fn build_chain(comp_specs: &[(&str, &str, Vec<(&str, &str)>)]) -> Schema {
     let mut builder = CircuitBuilder::new();
@@ -206,36 +233,42 @@ fn build_chain(comp_specs: &[(&str, &str, Vec<(&str, &str)>)]) -> Schema {
 // ═══════════════════════════════════════════════════════════════════════
 
 #[test]
-fn apply_expr_with_unknown_variable_leaves_field_unchanged() {
-    // Runtime expression errors are silently ignored — the transform falls
-    // through. This is panproto-inst behavior: `apply_field_transforms`
-    // discards the `Err` from `panproto_expr::eval` and leaves the field
-    // at its pre-transform value.
+fn apply_expr_with_unknown_variable_reports_error() {
+    // Runtime expression errors abort the evaluation and name the offending
+    // field. panproto-inst's `apply_field_transforms` propagates the `Err`
+    // from `panproto_expr::eval` as `FieldTransformFailed` rather than
+    // leaving the field at its pre-transform value.
     let source = flat_schema("user", &[("name", "string")]);
     let circuit = single_component_circuit(
         "apply_expr",
         &[("field", "name"), ("expr", "upper unknownVar")],
     );
-    let out = run_forward(&circuit, &source, r#"{"name": "Alice"}"#);
-    assert_eq!(
-        out["name"],
-        serde_json::json!("Alice"),
-        "runtime-failed apply_expr must leave field unchanged; got {out}"
+    let err = run_forward_err(&circuit, &source, r#"{"name": "Alice"}"#);
+    assert!(
+        err.contains("field transform on `name` failed to evaluate"),
+        "error must name the failing field; got {err}"
+    );
+    assert!(
+        err.contains("unbound variable: unknownVar"),
+        "error must name the unbound variable; got {err}"
     );
 }
 
 #[test]
-fn compute_field_with_unknown_variable_does_not_create_target() {
+fn compute_field_with_unknown_variable_reports_error() {
     let source = flat_schema("user", &[("name", "string")]);
     let circuit = single_component_circuit(
         "compute_field",
         &[("target", "slug"), ("expr", "lower unknownVar")],
     );
-    let out = run_forward(&circuit, &source, r#"{"name": "Alice"}"#);
-    assert_eq!(out["name"], serde_json::json!("Alice"));
+    let err = run_forward_err(&circuit, &source, r#"{"name": "Alice"}"#);
     assert!(
-        out.get("slug").is_none(),
-        "runtime-failed compute_field must not write the target key; got {out}"
+        err.contains("field transform on `slug` failed to evaluate"),
+        "error must name the target key; got {err}"
+    );
+    assert!(
+        err.contains("unbound variable: unknownVar"),
+        "error must name the unbound variable; got {err}"
     );
 }
 
@@ -244,25 +277,38 @@ fn compute_field_with_unknown_variable_does_not_create_target() {
 // ═══════════════════════════════════════════════════════════════════════
 
 #[test]
-fn apply_expr_type_mismatch_string_minus_int_leaves_field_unchanged() {
+fn apply_expr_type_mismatch_string_minus_int_reports_error() {
     // `name` is a string, `name - 1` is a type error inside panproto-expr.
     let source = flat_schema("user", &[("name", "string")]);
     let circuit =
         single_component_circuit("apply_expr", &[("field", "name"), ("expr", "name - 1")]);
-    let out = run_forward(&circuit, &source, r#"{"name": "Alice"}"#);
-    assert_eq!(out["name"], serde_json::json!("Alice"));
+    let err = run_forward_err(&circuit, &source, r#"{"name": "Alice"}"#);
+    assert!(
+        err.contains("field transform on `name` failed to evaluate"),
+        "error must name the failing field; got {err}"
+    );
+    assert!(
+        err.contains("type error"),
+        "error must report the type mismatch; got {err}"
+    );
 }
 
 #[test]
-fn compute_field_type_mismatch_does_not_populate_target() {
+fn compute_field_type_mismatch_reports_error() {
     let source = flat_schema("user", &[("name", "string")]);
     let circuit = single_component_circuit(
         "compute_field",
         &[("target", "derived"), ("expr", "name - 1")],
     );
-    let out = run_forward(&circuit, &source, r#"{"name": "Alice"}"#);
-    assert_eq!(out["name"], serde_json::json!("Alice"));
-    assert!(out.get("derived").is_none());
+    let err = run_forward_err(&circuit, &source, r#"{"name": "Alice"}"#);
+    assert!(
+        err.contains("field transform on `derived` failed to evaluate"),
+        "error must name the target key; got {err}"
+    );
+    assert!(
+        err.contains("type error"),
+        "error must report the type mismatch; got {err}"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -270,18 +316,16 @@ fn compute_field_type_mismatch_does_not_populate_target() {
 // ═══════════════════════════════════════════════════════════════════════
 
 #[test]
-fn apply_expr_div_by_zero_leaves_field_unchanged() {
-    // If panproto-expr errors on div-by-zero, the transform is a no-op and
-    // `count` stays at 7. If it instead returns Inf/NaN, the field would
-    // change and this assertion pins current behavior.
+fn apply_expr_div_by_zero_reports_error() {
+    // panproto-expr errors on div-by-zero rather than yielding Inf/NaN, so
+    // the transform aborts the evaluation and names `count`.
     let source = flat_schema("user", &[("count", "integer")]);
     let circuit =
         single_component_circuit("apply_expr", &[("field", "count"), ("expr", "100 / 0")]);
-    let out = run_forward(&circuit, &source, r#"{"count": 7}"#);
-    assert_eq!(
-        out["count"],
-        serde_json::json!(7),
-        "expected div-by-zero to error and leave field unchanged; got {out}. \
+    let err = run_forward_err(&circuit, &source, r#"{"count": 7}"#);
+    assert!(
+        err.contains("field transform on `count` failed to evaluate"),
+        "expected div-by-zero to be reported against `count`; got {err}. \
          If panproto-expr returns Inf/NaN instead of Err, this test needs updating."
     );
 }
@@ -317,22 +361,28 @@ fn recursive_expression_terminates_via_step_limit() {
 // ═══════════════════════════════════════════════════════════════════════
 
 #[test]
-fn apply_expr_with_lying_iso_tag_round_trip_surfaces_the_lie() {
-    // protolab trusts user-supplied coercion tags. When a component is
-    // tagged `iso`, panproto v0.37+ takes the declared inverse at its
-    // word and runs it on the view rather than falling back to the
-    // pre-transform value stashed in the complement. That means a lying
-    // inverse — identity in place of the true `lower` — leaks through
-    // even on an unmodified round-trip.
+fn apply_expr_with_lying_iso_tag_does_not_corrupt_the_source() {
+    // protolab trusts user-supplied coercion tags: tagged `iso`, panproto
+    // takes the declared inverse at its word and runs it on the view
+    // rather than falling back to the pre-transform value in the
+    // complement. The question this pins is what a *lying* inverse —
+    // identity in place of the true `lower` — can do to the source.
     //
-    // Earlier versions (≤ 0.34) silently shielded this case via
-    // complement storage; the behavior now matches the coercion class's
-    // contract: the caller promised an iso, so the lens honors the
-    // promise.
+    // The answer changed in panproto 0.66. `apply_expr` over a child
+    // scalar reads the child node but used to write its result to a
+    // shadowing `extra_fields` entry on the parent, a field the source
+    // never carried; on the way back that invented entry outranked the
+    // child, so an unmodified round-trip returned "ALICE" and the lie
+    // corrupted data it was never given authority over. The backward pass
+    // now writes back only where the source actually carried an entry,
+    // leaving the child node authoritative, so the round-trip recovers
+    // "Alice" and the false tag is contained rather than destructive.
     //
-    // A sample-based law check at circuit-build time (run
-    // `forward ∘ inverse` on sample values and reject mismatches) would
-    // catch the lie before the lens is compiled.
+    // The tag is still trusted and still wrong — a lying iso remains a
+    // defect in the lens. What it no longer does is silently rewrite the
+    // source. A sample-based law check at circuit-build time (run
+    // `forward ∘ inverse` over sample values and reject mismatches) is
+    // what would catch the lie itself before the lens is compiled.
     let source = flat_schema("user", &[("name", "string")]);
     let circuit = single_component_circuit(
         "apply_expr",
@@ -356,10 +406,10 @@ fn apply_expr_with_lying_iso_tag_round_trip_surfaces_the_lie() {
     let restored_json = panproto_inst::parse::to_json(&source, &restored);
     assert_eq!(
         restored_json["name"],
-        serde_json::json!("ALICE"),
-        "the declared iso is trusted; the lying inverse (identity on \
-         the view) leaks the upper-cased value back to the source; \
-         got {restored_json}"
+        serde_json::json!("Alice"),
+        "the child node stays authoritative, so a lying inverse cannot \
+         write the upper-cased value back over the source; got \
+         {restored_json}"
     );
 }
 
@@ -607,12 +657,13 @@ fn apply_expr_targeting_missing_field_does_not_create_extra_field() {
 // ═══════════════════════════════════════════════════════════════════════
 
 #[test]
-fn forward_eval_does_not_panic_when_one_component_in_chain_has_runtime_error() {
+fn forward_eval_reports_error_when_one_component_in_chain_fails() {
     // Chain of three apply_exprs on `name`:
     //   1. upper name          (runs cleanly, "alice" → "ALICE")
-    //   2. upper unknownVar    (runtime error → no-op, field stays "ALICE")
-    //   3. lower name          (runs cleanly, "ALICE" → "alice")
-    // The middle component's runtime error must not abort the chain.
+    //   2. upper unknownVar    (runtime error → aborts the chain)
+    //   3. lower name          (never reached)
+    // The middle component's runtime error aborts the chain with a
+    // diagnostic naming `name`, rather than panicking or passing through.
     let source = flat_schema("user", &[("name", "string")]);
     let circuit = build_chain(&[
         (
@@ -631,10 +682,13 @@ fn forward_eval_does_not_panic_when_one_component_in_chain_has_runtime_error() {
             vec![("field", "name"), ("expr", "lower name")],
         ),
     ]);
-    let out = run_forward(&circuit, &source, r#"{"name": "alice"}"#);
-    assert_eq!(
-        out["name"],
-        serde_json::json!("alice"),
-        "chain with a runtime-failed middle component must still produce an output; got {out}"
+    let err = run_forward_err(&circuit, &source, r#"{"name": "alice"}"#);
+    assert!(
+        err.contains("field transform on `name` failed to evaluate"),
+        "chain with a runtime-failed middle component must report it; got {err}"
+    );
+    assert!(
+        err.contains("unbound variable: unknownVar"),
+        "error must name the variable the middle component could not resolve; got {err}"
     );
 }

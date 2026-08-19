@@ -1,8 +1,9 @@
 //! Circuit schema mutation operations.
 //!
 //! Functions for modifying an existing circuit [`Schema`]: adding/removing
-//! components, wires, and updating parameters. Unlike [`CircuitBuilder`]
-//! which constructs from scratch, these operate on a mutable schema.
+//! components, wires, and updating parameters. Unlike
+//! [`CircuitBuilder`](crate::builder::CircuitBuilder) which constructs from
+//! scratch, these operate on a mutable schema.
 
 use panproto_gat::Name;
 use panproto_schema::{Constraint, Edge, Schema, Vertex};

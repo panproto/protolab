@@ -60,6 +60,26 @@ export interface SchemaImportResult {
   summary: { protocol: string; vertex_count: number; edge_count: number };
 }
 
+export interface SpanPair {
+  src: string;
+  tgt: string;
+}
+
+export interface SpanReport {
+  pairs: SpanPair[];
+  apex_coverage: number;
+  apex_vertex_count: number;
+  source_vertex_count: number;
+  is_total: boolean;
+  proven_optimal: boolean;
+}
+
+export interface LensImportResult {
+  handle: number;
+  /** Parts of the document the canvas could not carry across. */
+  dropped: string[];
+}
+
 export interface TheoryImportResult {
   handle: number;
   name: string;
@@ -261,7 +281,20 @@ export const exportLensJson = vi.fn((_handle: number): string => "{}");
 export const exportYaml = vi.fn((_handle: number): string => "");
 export const exportNickel = vi.fn((_handle: number): string => "");
 
-export const importLensDoc = vi.fn((_jsonSource: string): number => 42);
+export const schemaSpan = vi.fn(
+  (_source: number, _target: number): SpanReport => ({
+    pairs: [],
+    apex_coverage: 0,
+    apex_vertex_count: 0,
+    source_vertex_count: 0,
+    is_total: false,
+    proven_optimal: true,
+  }),
+);
+
+export const importLensDoc = vi.fn(
+  (_jsonSource: string): LensImportResult => ({ handle: 42, dropped: [] }),
+);
 
 export const importSchema = vi.fn(
   (_jsonSource: string): SchemaImportResult => ({
@@ -528,7 +561,15 @@ export function resetMockBridge(): void {
   exportLensJson.mockImplementation(() => "{}");
   exportYaml.mockImplementation(() => "");
   exportNickel.mockImplementation(() => "");
-  importLensDoc.mockImplementation(() => 42);
+  schemaSpan.mockImplementation(() => ({
+    pairs: [],
+    apex_coverage: 0,
+    apex_vertex_count: 0,
+    source_vertex_count: 0,
+    is_total: false,
+    proven_optimal: true,
+  }));
+  importLensDoc.mockImplementation(() => ({ handle: 42, dropped: [] }));
   importSchema.mockImplementation(() => ({
     handle: 1,
     summary: { protocol: "mock-protocol", vertex_count: 2, edge_count: 1 },

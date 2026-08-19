@@ -29,10 +29,21 @@ base.describe("parameter edits in edit mode propagate to presentation run", () =
     page,
   }) => {
     // Start on the default landing (presentation + Lexicon Mapper
-    // template: 4 real lens components). Toggle to edit mode, find
-    // the first rename_field (text→body), change its new_name to a
-    // sentinel, toggle back to presentation, Run. Output must have
-    // the sentinel instead of body.
+    // template: 4 real lens components). Toggle to edit mode, retarget
+    // the first rename_field (text→body) at a sentinel key, toggle back
+    // to presentation, Run. Output must have the sentinel instead of
+    // body.
+    //
+    // The template's third step computes `charCount = len(body)`, so
+    // renaming `body` away orphans that expression and the edit has to
+    // carry it along. Up to panproto 0.38 it did not: an unevaluable
+    // field transform was discarded and the rest of the chain still
+    // produced output, so the rename could be edited in isolation.
+    // panproto 0.57 reports the failure instead, which aborts the
+    // evaluation and leaves no output at all — see the companion test
+    // below, which pins that. Editing both params is also the better
+    // test of what this case is about, which is whether an edit made in
+    // one mode reaches a run in the other.
     await stubLexicons(page, ["app.bsky.feed.post"]);
     await page.goto("/");
     await expect(page.locator('[data-mode="presentation"]')).toBeVisible({
@@ -68,6 +79,17 @@ base.describe("parameter edits in edit mode propagate to presentation run", () =
       },
       { id: renameNodeId, v: sentinel },
     );
+    // Carry the downstream expression with the rename, so the chain
+    // still reads a field that exists.
+    await page.evaluate((v) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const store = (window as any).__protolabStore.getState();
+      const compute = store.nodes.find(
+        (x: { data: { componentType: string } }) =>
+          x.data.componentType === "compute_field",
+      );
+      if (compute) store.updateParam(compute.id, "expr", `len(${v})`);
+    }, sentinel);
     await page.keyboard.press("Meta+E");
     await expect(page.locator('[data-mode="presentation"]')).toBeVisible();
     await page.locator('[data-widget="run_button"]').click();
@@ -86,6 +108,74 @@ base.describe("parameter edits in edit mode propagate to presentation run", () =
         { timeout: 10_000 },
       )
       .toEqual(expect.objectContaining({ [sentinel]: expect.any(String) }));
+  });
+
+  // The other half of the contract above. Up to panproto 0.38 an
+  // unevaluable field transform was discarded and evaluation carried on,
+  // so a lens broken mid-chain still produced output and the breakage was
+  // indistinguishable from a transform that ran and changed nothing.
+  // panproto 0.57 reports it. Pinned here because it is the user-visible
+  // face of that change: the run stops and says which field failed and
+  // why, rather than quietly emitting a partial record.
+  base("orphaning a field a later step reads reports the failure", async ({
+    page,
+  }) => {
+    await stubLexicons(page, ["app.bsky.feed.post"]);
+    await page.goto("/");
+    await expect(page.locator('[data-widget="run_button"]')).toHaveAttribute(
+      "data-ready",
+      "true",
+      { timeout: 15_000 },
+    );
+    await page.keyboard.press("Meta+E");
+    await expect(page.locator('[data-mode="edit"]')).toBeVisible();
+
+    // Rename `body` away without touching `compute_field (len(body))`.
+    const renameNodeId = await page.evaluate(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const s = (window as any).__protolabStore.getState();
+      return s.nodes.find(
+        (x: {
+          data: { componentType: string; params: Array<{ key: string; value: string }> };
+        }) =>
+          x.data.componentType === "rename_field" &&
+          x.data.params.some((p) => p.key === "old_name" && p.value === "text"),
+      )?.id as string;
+    });
+    expect(renameNodeId).toBeTruthy();
+    await page.evaluate((id) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (window as any).__protolabStore
+        .getState()
+        .updateParam(id, "new_name", "orphanedField");
+    }, renameNodeId);
+
+    await page.keyboard.press("Meta+E");
+    await expect(page.locator('[data-mode="presentation"]')).toBeVisible();
+    await page.locator('[data-widget="run_button"]').click();
+
+    const err = await expect
+      .poll(
+        () =>
+          page.evaluate(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            () => (window as any).__protolabStore.getState().evaluationError,
+          ),
+        { timeout: 10_000 },
+      )
+      .toBeTruthy()
+      .then(() =>
+        page.evaluate(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          () => (window as any).__protolabStore.getState().evaluationError as string,
+        ),
+      );
+
+    // Naming the field and the unbound variable is the whole value of
+    // reporting over discarding: it says which step broke and what it
+    // could not find.
+    expect(err).toContain("charCount");
+    expect(err).toContain("body");
   });
 });
 

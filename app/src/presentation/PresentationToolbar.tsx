@@ -1,6 +1,15 @@
 /**
- * Presentation mode toolbar: title, mode toggle, copy-share-URL button.
- * Replaces the edit-mode Toolbar + DataPanel.
+ * Presentation mode toolbar: title, mode toggle, copy-share-URL button,
+ * lens library, and the account badge. Replaces the edit-mode Toolbar +
+ * DataPanel.
+ *
+ * The account control lives here as well as in the edit-mode Toolbar
+ * because presentation mode is where a bare visit lands: with no `?mode`
+ * param the app loads the Lexicon Mapper template in presentation mode, so
+ * an account control only in the edit toolbar is one Cmd+E away from
+ * anybody who has not been told about Cmd+E. Publishing also reads more
+ * naturally from here — you have resolved the schemas and run the lens,
+ * and publishing is the next thing you want.
  */
 
 import { useState } from "react";
@@ -8,6 +17,8 @@ import { useCircuitStore } from "../store/circuitStore";
 import { buildShareUrl } from "./url";
 import { PresentationHelp } from "./PresentationHelp";
 import { KeyboardHelp } from "../panels/KeyboardHelp";
+import { SessionMenu } from "../components/SessionMenu";
+import { LensLibrary } from "../components/LensLibrary";
 
 export function PresentationToolbar() {
   const title = useCircuitStore((s) => s.presentationDoc.title);
@@ -15,6 +26,7 @@ export function PresentationToolbar() {
   const circuitHandle = useCircuitStore((s) => s.circuitHandle);
   const [helpOpen, setHelpOpen] = useState(false);
   const [keysOpen, setKeysOpen] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(false);
 
   const onShare = async () => {
     const url = buildShareUrl(circuitHandle);
@@ -50,6 +62,12 @@ export function PresentationToolbar() {
           borderBottom: "1px solid oklch(0.25 0.01 250)",
           color: "#ddd",
           fontSize: 12,
+          // The bar carries six controls now that the library and the
+          // account badge live here, which is wider than a 375px viewport.
+          // Wrap rather than overflow: the edit toolbar already does, and a
+          // horizontal scrollbar on the whole document is the one outcome
+          // the mobile spec rules out.
+          flexWrap: "wrap",
         }}
       >
         <div style={{ fontWeight: 600, fontSize: 14 }}>{title}</div>
@@ -84,8 +102,17 @@ export function PresentationToolbar() {
         >
           ?
         </button>
+        <button
+          onClick={() => setLibraryOpen(true)}
+          title="Publish this lens to a PDS, or browse a published lens library"
+          style={btnStyle}
+        >
+          Library
+        </button>
+        <SessionMenu />
       </div>
 
+      {libraryOpen && <LensLibrary onClose={() => setLibraryOpen(false)} />}
       {helpOpen && <PresentationHelp onClose={() => setHelpOpen(false)} />}
       {keysOpen && <KeyboardHelp onClose={() => setKeysOpen(false)} />}
     </>

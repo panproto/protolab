@@ -279,6 +279,13 @@ interface CircuitState {
    * UX: the user can promote a subset to hints and retry.
    */
   discoveredAnchors: wasm.AnchorProposal[];
+  /**
+   * What the source and target actually share, measured by the span
+   * search. Populated only when candidate generation found no lens —
+   * that is the moment the question is worth asking, and the only moment
+   * the canvas has nothing else to say. Null otherwise.
+   */
+  schemaSpan: wasm.SpanReport | null;
   /** Schema currently open in the viewer modal, or null when closed. */
   schemaViewerHandle: number | null;
   /** True when the hint editor modal is open. */
@@ -493,6 +500,7 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
   autoLensCandidates: [],
   selectedCandidateIdx: null,
   discoveredAnchors: [],
+  schemaSpan: null,
   schemaViewerHandle: null,
   hintEditorOpen: false,
   theoryDiffOpen: false,
@@ -609,7 +617,16 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
       if (mode === "presentation") p.set("mode", "presentation");
       else p.delete("mode");
       const q = p.toString();
-      const url = q ? `${window.location.pathname}?${q}` : window.location.pathname;
+      // Keep the fragment. This runs from App's boot effect, and atproto
+      // OAuth uses `response_mode=fragment`, so a sign-in returns to
+      // `/#code=...&state=...`. Rebuilding the URL from pathname + query
+      // alone dropped those params before the OAuth client could read
+      // them: the authorization request succeeded, the callback silently
+      // became a plain page load, and the user landed back on a signed-out
+      // app with an orphaned `state` entry and no error anywhere.
+      const url =
+        (q ? `${window.location.pathname}?${q}` : window.location.pathname) +
+        window.location.hash;
       window.history.replaceState(null, "", url);
     }
   },
@@ -653,12 +670,23 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
 
   importLensDocument(json) {
     try {
-      const newHandle = wasm.importLensDoc(json);
+      const { handle: newHandle, dropped } = wasm.importLensDoc(json);
       const graph = wasm.getGraph(newHandle);
       const oldHandle = get().circuitHandle;
       if (oldHandle !== null) wasm.free_handle(oldHandle);
       set({ circuitHandle: newHandle });
       get().applyGraph(graph);
+      // The import succeeded, so this is not an error — but the circuit on
+      // screen is now a strictly smaller thing than the document, and
+      // exporting it will not reproduce what was left behind. Saying so is
+      // the difference between a lossy round-trip the user chose and one
+      // they discover later.
+      set({
+        error:
+          dropped.length > 0
+            ? `Imported, but the canvas cannot carry every part of this lens. ${dropped.join(" ")}`
+            : null,
+      });
     } catch (err) {
       set({ error: String(err) });
     }
@@ -882,6 +910,7 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
         selectedCandidateIdx: result.candidates.length > 0 ? 0 : null,
         autoLensError: null,
         discoveredAnchors: [],
+        schemaSpan: null,
       });
       if (result.candidates.length > 0) {
         // selectCandidate sets autoLensStatus = "success" + installs
@@ -923,6 +952,18 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
       } catch (mapErr) {
         console.warn("computeSchemaMapping failed:", mapErr);
       }
+      // The candidate search answering "no" says nothing about what the
+      // two schemas share; the empty state used to fill that gap by
+      // asserting the names "don't overlap enough", which protolab had no
+      // evidence for. The span search does have an answer here and never
+      // refuses: it returns the largest part of the source that maps, down
+      // to an empty apex when genuinely nothing does.
+      let span: wasm.SpanReport | null = null;
+      try {
+        span = wasm.schemaSpan(src, tgt);
+      } catch (spanErr) {
+        console.warn("schemaSpan failed:", spanErr);
+      }
       // Synthesize a theory-level chain from the bare mapping so
       // TheoryDiffModal has steps to render. One step per added or
       // removed vertex is the coarse but honest summary ("this
@@ -961,6 +1002,7 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
             }
           : null,
         discoveredAnchors: discovered,
+        schemaSpan: span,
       });
     }
   },
