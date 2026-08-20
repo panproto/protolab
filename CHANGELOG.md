@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1] — 2026-08-20
+
+### Fixed
+
+- **protolab no longer advertises a redirect it cannot serve.** The
+  OAuth client metadata declared two `redirect_uris`: the SPA root, and
+  `https://panproto.dev/protolab/oauth/callback`. The second was copied
+  from fieldwork, which ships a real page at that path to receive the
+  code and hand it back to its SPA. protolab does not — it handles the
+  callback in the SPA itself, as `sessions/oauth.ts` says — and the
+  deploy has no SPA fallback, so that URL 404s in production.
+
+  Nothing selected it: the OAuth library picks a redirect by matching
+  `location.pathname`, users start at the root, and the root entry
+  works. Production sign-in completes and the session carries exactly
+  the four requested scopes. But a declared redirect is a promise to
+  the authorization server that a code can be received there, and this
+  one would have dropped a completed authorization if anything ever
+  picked it — the same silent-loss shape as the callback fragment being
+  stripped, which 0.8.0 fixed. The entry is gone, and tests now assert
+  that the declared set is exactly the one address protolab can serve
+  and that every entry sits under the deployed base path.
+
 ## [0.8.0] — 2026-08-19
 
 ### Added

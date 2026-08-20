@@ -68,6 +68,29 @@ describe("scopes", () => {
     expect(metadata.redirect_uris).toContain("https://panproto.dev/protolab/");
   });
 
+  // Every declared redirect is a promise to the authorization server that
+  // protolab can receive a code there. protolab handles the callback in the
+  // SPA itself and ships no separate callback page, so the SPA root is the
+  // only address it can keep that promise at.
+  //
+  // A `/oauth/callback` entry was declared for one release, copied from
+  // fieldwork — which does ship such a page. protolab does not, the deploy
+  // has no SPA fallback, and that URL 404s in production. Nothing selected
+  // it, because the library matches location.pathname and users start at
+  // the root, so it was inert. It was still an advertised address that
+  // drops a completed authorization on the floor if anything ever picks it.
+  it("declares no redirect protolab cannot serve", () => {
+    expect(metadata.redirect_uris).toEqual(["https://panproto.dev/protolab/"]);
+  });
+
+  it("every redirect is under the deployed base path", () => {
+    // A redirect outside the app's own base path cannot be served by this
+    // build regardless of what else is true.
+    for (const uri of metadata.redirect_uris) {
+      expect(uri.startsWith("https://panproto.dev/protolab/")).toBe(true);
+    }
+  });
+
   it("client_id is the metadata document's own URL", () => {
     expect(metadata.client_id).toBe(
       "https://panproto.dev/protolab/oauth/client-metadata.json",
