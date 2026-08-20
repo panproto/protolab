@@ -5,10 +5,7 @@
   "logo_uri": "https://panproto.dev/protolab/og.png",
   "tos_uri": "https://panproto.dev/protolab/",
   "policy_uri": "https://panproto.dev/protolab/",
-  "redirect_uris": [
-    "https://panproto.dev/protolab/",
-    "https://panproto.dev/protolab/oauth/callback"
-  ],
+  "redirect_uris": ["https://panproto.dev/protolab/"],
   "grant_types": ["authorization_code", "refresh_token"],
   "response_types": ["code"],
   "application_type": "web",
